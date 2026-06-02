@@ -1,15 +1,23 @@
 import os
+import sys
 import decky
 import asyncio
 import json
 from typing import Dict, List, Optional
 
+# Add py_modules to path for bundled dependencies
+plugin_dir = os.path.dirname(os.path.abspath(__file__))
+py_modules_path = os.path.join(plugin_dir, "py_modules")
+if py_modules_path not in sys.path:
+    sys.path.insert(0, py_modules_path)
+
 try:
-    from pypresence import Presence
-    PYPRESENCE_AVAILABLE = True
-except ImportError:
-    PYPRESENCE_AVAILABLE = False
-    decky.logger.warning("pypresence not available - Discord RPC features disabled")
+    from simple_discord_rpc import DiscordRPC
+    DISCORD_RPC_AVAILABLE = True
+    decky.logger.info("Using bundled Discord RPC implementation")
+except ImportError as e:
+    DISCORD_RPC_AVAILABLE = False
+    decky.logger.warning(f"Discord RPC not available: {e}")
 
 class Plugin:
     def __init__(self):
@@ -21,19 +29,22 @@ class Plugin:
         return {
             "connected": self.connected,
             "error": self.connection_error,
-            "pypresence_available": PYPRESENCE_AVAILABLE
+            "pypresence_available": DISCORD_RPC_AVAILABLE
         }
     
     async def connect_to_discord(self) -> Dict[str, any]:
-        if not PYPRESENCE_AVAILABLE:
-            self.connection_error = "pypresence library not installed"
+        if not DISCORD_RPC_AVAILABLE:
+            self.connection_error = "Discord RPC library not available"
             return await self.get_connection_status()
             
         try:
             if self.rpc is None:
-                self.rpc = Presence(client_id='1234567890123456789')  # Placeholder client ID
+                self.rpc = DiscordRPC(client_id='1234567890123456789')
             
-            self.rpc.connect()
+            # Run the blocking connect call in a thread to avoid blocking the event loop
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self.rpc.connect)
+            
             self.connected = True
             self.connection_error = None
             decky.logger.info("Successfully connected to Discord RPC")
@@ -63,19 +74,13 @@ class Plugin:
             return {"success": False, "error": "Not connected to Discord"}
             
         try:
-            # Note: This is a placeholder - actual Discord RPC guild fetching 
-            # requires proper authentication and different approach
-            # For now, return mock data to test the UI
-            guilds = [
-                {"id": "123456789", "name": "Test Server 1", "icon": None},
-                {"id": "987654321", "name": "Gaming Community", "icon": None},
-                {"id": "456789123", "name": "Friends", "icon": None}
-            ]
-            
-            return {
-                "success": True,
-                "guilds": guilds
-            }
+            # Use our bundled RPC implementation
+            if self.rpc:
+                loop = asyncio.get_event_loop()
+                guilds_data = await loop.run_in_executor(None, self.rpc.get_guilds)
+                return guilds_data
+            else:
+                return {"success": False, "error": "RPC client not initialized"}
             
         except Exception as e:
             decky.logger.error(f"Error fetching guilds: {e}")
@@ -86,7 +91,7 @@ class Plugin:
         decky.logger.info("Discord RPC Plugin loaded")
         
         # Attempt initial connection
-        if PYPRESENCE_AVAILABLE:
+        if DISCORD_RPC_AVAILABLE:
             await self.connect_to_discord()
 
     async def _unload(self):

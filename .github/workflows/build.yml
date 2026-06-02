@@ -45,7 +45,6 @@ jobs:
         cp main.py release/discord-rpc/
         cp plugin.json release/discord-rpc/
         cp package.json release/discord-rpc/
-        cp requirements.txt release/discord-rpc/
         cp README.md release/discord-rpc/
         cp LICENSE release/discord-rpc/
         cp -r assets release/discord-rpc/ 2>/dev/null || true

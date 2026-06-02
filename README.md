@@ -12,21 +12,19 @@ Control Discord from your Steam Deck without leaving Big Picture Mode! This Deck
 
 ## Installation
 
-### Easy Installation (Recommended)
+### Super Easy Installation (Recommended)
+
+**No pip or Python dependencies required!** Everything is bundled.
 
 1. **Download Pre-built Plugin**:
    - Go to the [Releases page](https://github.com/deegan/deckydiscord/releases)
    - Download the latest `discord-rpc-plugin.zip` file
 
-2. **Install Python Dependency** (on Steam Deck):
-   ```bash
-   pip install pypresence>=4.3.0
-   ```
-
-3. **Install in Decky Loader**:
+2. **Install in Decky Loader**:
    - Extract the zip file
    - Copy the `discord-rpc` folder to your Decky Loader plugins directory
    - Or use Decky's "Install Plugin from ZIP" feature
+   - **That's it!** No additional dependencies needed.
 
 ### Manual Installation (Developers)
 
@@ -35,7 +33,7 @@ If you want to build from source:
 1. **Prerequisites**:
    - **Discord Desktop Client**: Must be running on your Steam Deck
    - **Decky Loader**: Install [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) on your Steam Deck
-   - **Node.js & pnpm**: For building the frontend
+   - **Node.js & pnpm**: For building the frontend only
 
 2. **Build Steps**:
    ```bash
@@ -43,7 +41,7 @@ If you want to build from source:
    cd deckydiscord
    pnpm install
    pnpm run build
-   pip install pypresence>=4.3.0
+   # No pip install needed - Discord RPC is bundled!
    ```
 
 3. **Install in Decky Loader**:
