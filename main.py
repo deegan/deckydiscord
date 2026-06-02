@@ -86,6 +86,40 @@ class Plugin:
             decky.logger.error(f"Error fetching guilds: {e}")
             return {"success": False, "error": str(e)}
 
+    async def debug_discord_connection(self) -> Dict[str, any]:
+        """Debug Discord connection issues with detailed logging."""
+        try:
+            from simple_discord_rpc import DiscordRPC
+            
+            # Create a temporary RPC instance for debugging
+            debug_rpc = DiscordRPC()
+            
+            # This will print detailed debug info to the logs
+            socket_path = debug_rpc._find_discord_socket()
+            
+            if socket_path:
+                return {
+                    "success": True,
+                    "socket_found": True,
+                    "socket_path": socket_path,
+                    "message": "Discord socket found! Check Decky logs for details."
+                }
+            else:
+                return {
+                    "success": False,
+                    "socket_found": False,
+                    "socket_path": None,
+                    "message": "No Discord socket found. Check Decky logs for detailed search info."
+                }
+                
+        except Exception as e:
+            decky.logger.error(f"Debug error: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Debug function failed"
+            }
+
     async def _main(self):
         self.loop = asyncio.get_event_loop()
         decky.logger.info("Discord RPC Plugin loaded")

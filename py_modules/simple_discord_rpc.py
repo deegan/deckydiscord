@@ -23,33 +23,106 @@ class DiscordRPC:
         self.pipe_path = None
         
     def _find_discord_socket(self) -> Optional[str]:
-        """Find Discord IPC socket on Linux."""
-        # Common Discord IPC socket locations on Linux
+        """Find Discord IPC socket on Linux with extensive debugging."""
         possible_paths = []
+        debug_info = []
         
-        # XDG_RUNTIME_DIR is the standard location
+        # Get current user info
+        user_id = os.getuid()
+        username = os.getenv('USER', 'unknown')
+        debug_info.append(f"User: {username} (UID: {user_id})")
+        
+        # XDG_RUNTIME_DIR (most common location)
         runtime_dir = os.environ.get('XDG_RUNTIME_DIR')
         if runtime_dir:
-            for i in range(10):  # Discord usually uses discord-ipc-0 to discord-ipc-9
+            debug_info.append(f"XDG_RUNTIME_DIR: {runtime_dir}")
+            for i in range(10):
+                possible_paths.append(f"{runtime_dir}/discord-ipc-{i}")
+        else:
+            # Fallback: construct standard XDG runtime dir
+            runtime_dir = f"/run/user/{user_id}"
+            debug_info.append(f"Fallback XDG_RUNTIME_DIR: {runtime_dir}")
+            for i in range(10):
                 possible_paths.append(f"{runtime_dir}/discord-ipc-{i}")
         
-        # Fallback locations
-        temp_dir = tempfile.gettempdir()
-        for i in range(10):
-            possible_paths.append(f"{temp_dir}/discord-ipc-{i}")
-            
+        # Steam Deck specific locations
+        steam_deck_paths = [
+            f"/home/{username}/.local/share/Steam/steamapps/common/Discord/discord-ipc-0",
+            f"/home/deck/.local/share/Steam/steamapps/common/Discord/discord-ipc-0",
+            "/tmp/discord-ipc-0",
+            "/var/tmp/discord-ipc-0"
+        ]
+        possible_paths.extend(steam_deck_paths)
+        
+        # Flatpak Discord locations (common on Steam Deck)
+        flatpak_paths = [
+            f"{runtime_dir}/app/com.discordapp.Discord/discord-ipc-0",
+            f"/home/{username}/.var/app/com.discordapp.Discord/discord-ipc-0"
+        ]
+        possible_paths.extend(flatpak_paths)
+        
+        # Temporary directory fallbacks
+        temp_dirs = [tempfile.gettempdir(), "/tmp", "/var/tmp"]
+        for temp_dir in temp_dirs:
+            for i in range(10):
+                possible_paths.append(f"{temp_dir}/discord-ipc-{i}")
+        
+        debug_info.append(f"Searching {len(possible_paths)} possible socket locations...")
+        
         # Check which socket exists and is accessible
         for path in possible_paths:
+            debug_info.append(f"Checking: {path}")
+            
             if os.path.exists(path):
+                debug_info.append(f"  ✓ File exists")
                 try:
-                    # Test if we can connect to this socket
-                    test_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                    test_sock.settimeout(1)
-                    test_sock.connect(path)
-                    test_sock.close()
-                    return path
-                except (socket.error, OSError):
+                    # Check if it's a socket
+                    stat = os.stat(path)
+                    import stat as stat_module
+                    if stat_module.S_ISSOCK(stat.st_mode):
+                        debug_info.append(f"  ✓ Is a socket")
+                        
+                        # Test if we can connect to this socket
+                        test_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                        test_sock.settimeout(2)
+                        test_sock.connect(path)
+                        test_sock.close()
+                        debug_info.append(f"  ✓ Connection successful!")
+                        
+                        # Log debug info for successful connection
+                        print("Discord Socket Debug Info:")
+                        for info in debug_info:
+                            print(f"  {info}")
+                        
+                        return path
+                    else:
+                        debug_info.append(f"  ✗ Not a socket file")
+                        
+                except (socket.error, OSError, PermissionError) as e:
+                    debug_info.append(f"  ✗ Connection failed: {e}")
                     continue
+            else:
+                debug_info.append(f"  ✗ File does not exist")
+        
+        # Log debug info for failed search
+        print("Discord Socket Debug Info (No socket found):")
+        for info in debug_info:
+            print(f"  {info}")
+            
+        # Additional debugging: check what Discord processes are running
+        try:
+            import subprocess
+            result = subprocess.run(['ps', 'aux'], capture_output=True, text=True)
+            discord_procs = [line for line in result.stdout.split('\n') if 'discord' in line.lower()]
+            if discord_procs:
+                print("Running Discord processes:")
+                for proc in discord_procs:
+                    print(f"  {proc}")
+            else:
+                print("No Discord processes found running")
+        except Exception as e:
+            print(f"Could not check processes: {e}")
+            
         return None
     
     def connect(self) -> bool:

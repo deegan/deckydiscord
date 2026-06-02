@@ -38,6 +38,7 @@ const getConnectionStatus = callable<[], ConnectionStatus>("get_connection_statu
 const connectToDiscord = callable<[], ConnectionStatus>("connect_to_discord");
 const disconnectFromDiscord = callable<[], ConnectionStatus>("disconnect_from_discord");
 const getGuilds = callable<[], GuildsResponse>("get_guilds");
+const debugDiscordConnection = callable<[], any>("debug_discord_connection");
 
 function Content() {
   const [status, setStatus] = useState<ConnectionStatus>({ connected: false, pypresence_available: false });
@@ -116,6 +117,23 @@ function Content() {
     }
   };
 
+  const handleDebug = async () => {
+    try {
+      const result = await debugDiscordConnection();
+      toaster.toast({
+        title: result.socket_found ? "Debug: Socket Found!" : "Debug: No Socket",
+        body: result.message
+      });
+      console.log("Discord Debug Result:", result);
+    } catch (error) {
+      console.error("Debug error:", error);
+      toaster.toast({
+        title: "Debug Failed",
+        body: "Check console for details"
+      });
+    }
+  };
+
   return (
     <>
       <PanelSection title="Connection Status">
@@ -160,6 +178,16 @@ function Content() {
             disabled={loading || !status.pypresence_available}
           >
             {loading ? "Connecting..." : status.connected ? "Disconnect" : "Connect to Discord"}
+          </ButtonItem>
+        </PanelSectionRow>
+        
+        <PanelSectionRow>
+          <ButtonItem
+            layout="below"
+            onClick={handleDebug}
+            disabled={!status.pypresence_available}
+          >
+            Debug Discord Connection
           </ButtonItem>
         </PanelSectionRow>
       </PanelSection>
