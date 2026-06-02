@@ -1,0 +1,69 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [created]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 9
+        
+    - name: Install frontend dependencies
+      run: pnpm install
+      
+    - name: Build frontend
+      run: pnpm run build
+      
+    - name: Create plugin package
+      run: |
+        mkdir -p release/discord-rpc
+        cp -r dist release/discord-rpc/
+        cp main.py release/discord-rpc/
+        cp plugin.json release/discord-rpc/
+        cp package.json release/discord-rpc/
+        cp requirements.txt release/discord-rpc/
+        cp README.md release/discord-rpc/
+        cp LICENSE release/discord-rpc/
+        cp -r assets release/discord-rpc/ 2>/dev/null || true
+        cp -r defaults release/discord-rpc/ 2>/dev/null || true
+        cp -r py_modules release/discord-rpc/ 2>/dev/null || true
+        
+    - name: Create release zip
+      run: |
+        cd release
+        zip -r discord-rpc-plugin.zip discord-rpc/
+        
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: discord-rpc-plugin
+        path: release/discord-rpc-plugin.zip
+        
+    - name: Upload to release (if tagged)
+      if: github.event_name == 'release'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ github.event.release.upload_url }}
+        asset_path: ./release/discord-rpc-plugin.zip
+        asset_name: discord-rpc-plugin.zip
+        asset_content_type: application/zip
