@@ -10,6 +10,8 @@ import tempfile
 import os
 import sys
 import asyncio
+import stat as stat_module
+import subprocess
 from typing import Dict, Any, Optional
 
 
@@ -77,9 +79,8 @@ class DiscordRPC:
                 debug_info.append(f"  ✓ File exists")
                 try:
                     # Check if it's a socket
-                    stat = os.stat(path)
-                    import stat as stat_module
-                    if stat_module.S_ISSOCK(stat.st_mode):
+                    file_stat = os.stat(path)
+                    if stat_module.S_ISSOCK(file_stat.st_mode):
                         debug_info.append(f"  ✓ Is a socket")
                         
                         # Test if we can connect to this socket
@@ -111,7 +112,6 @@ class DiscordRPC:
             
         # Additional debugging: check what Discord processes are running
         try:
-            import subprocess
             result = subprocess.run(['ps', 'aux'], capture_output=True, text=True)
             discord_procs = [line for line in result.stdout.split('\n') if 'discord' in line.lower()]
             if discord_procs:

@@ -89,35 +89,57 @@ class Plugin:
     async def debug_discord_connection(self) -> Dict[str, any]:
         """Debug Discord connection issues with detailed logging."""
         try:
-            from simple_discord_rpc import DiscordRPC
+            if not DISCORD_RPC_AVAILABLE:
+                return {
+                    "success": False,
+                    "error": "Discord RPC library not available",
+                    "message": "Discord RPC implementation not loaded"
+                }
             
-            # Create a temporary RPC instance for debugging
-            debug_rpc = DiscordRPC()
+            # Import in a safer way
+            try:
+                from simple_discord_rpc import DiscordRPC
+            except Exception as import_error:
+                decky.logger.error(f"Import error: {import_error}")
+                return {
+                    "success": False,
+                    "error": f"Import failed: {str(import_error)}",
+                    "message": "Could not import Discord RPC module"
+                }
             
-            # This will print detailed debug info to the logs
-            socket_path = debug_rpc._find_discord_socket()
+            # Create a temporary RPC instance for debugging and run in executor
+            loop = asyncio.get_event_loop()
+            
+            def run_debug():
+                debug_rpc = DiscordRPC()
+                return debug_rpc._find_discord_socket()
+            
+            socket_path = await loop.run_in_executor(None, run_debug)
             
             if socket_path:
+                decky.logger.info(f"Debug: Found Discord socket at {socket_path}")
                 return {
                     "success": True,
                     "socket_found": True,
                     "socket_path": socket_path,
-                    "message": "Discord socket found! Check Decky logs for details."
+                    "message": f"Found socket: {socket_path}"
                 }
             else:
+                decky.logger.warning("Debug: No Discord socket found")
                 return {
                     "success": False,
                     "socket_found": False,
                     "socket_path": None,
-                    "message": "No Discord socket found. Check Decky logs for detailed search info."
+                    "message": "No Discord socket found. Check logs for details."
                 }
                 
         except Exception as e:
-            decky.logger.error(f"Debug error: {e}")
+            error_msg = f"Debug error: {str(e)}"
+            decky.logger.error(error_msg)
             return {
                 "success": False,
                 "error": str(e),
-                "message": "Debug function failed"
+                "message": "Debug function failed - check logs"
             }
 
     async def _main(self):
