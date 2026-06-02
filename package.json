@@ -1,6 +1,6 @@
 {
   "name": "discord-rpc-plugin",
-  "version": "0.0.1",
+  "version": "0.0.3",
   "description": "Control Discord from Steam Deck without leaving Big Picture Mode",
   "type": "module",
   "scripts": {
