@@ -147,7 +147,7 @@ class Plugin:
         """Check if there's a newer version available on GitHub."""
         try:
             # Get current version
-            current_version = "0.1.3"  # This should be updated automatically
+            current_version = "0.1.4"  # This should be updated automatically
             
             # GitHub API to get latest release
             api_url = "https://api.github.com/repos/deegan/deckydiscord/releases/latest"
@@ -183,6 +183,8 @@ class Plugin:
             # Compare versions
             is_newer = latest_version != f"v{current_version}"
             
+            decky.logger.info(f"Update check result - Current: v{current_version}, Latest: {latest_version}, Update available: {is_newer}")
+            
             return {
                 "success": True,
                 "current_version": current_version,
@@ -196,7 +198,7 @@ class Plugin:
             return {
                 "success": False,
                 "error": str(e),
-                "message": "Failed to check for updates"
+                "message": f"Failed to check for updates: {str(e)[:100]}..."
             }
 
     async def update_plugin(self) -> Dict[str, any]:
