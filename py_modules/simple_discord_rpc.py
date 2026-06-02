@@ -59,6 +59,19 @@ class DiscordRPC:
             debug_info.append(f"Fallback XDG_RUNTIME_DIR: {runtime_dir}")
             for i in range(10):
                 possible_paths.append(f"{runtime_dir}/discord-ipc-{i}")
+                
+        # Check for Flatpak environment variables that might indicate Discord socket location
+        flatpak_id = os.environ.get('FLATPAK_ID')
+        if flatpak_id:
+            debug_info.append(f"Running inside Flatpak: {flatpak_id}")
+            
+        # Additional environment variables that might help locate Discord
+        for env_var in ['DISCORD_IPC_SOCKET', 'DISCORD_RPC_SOCKET', 'FLATPAK_DEST']:
+            value = os.environ.get(env_var)
+            if value:
+                debug_info.append(f"{env_var}: {value}")
+                if 'discord' in env_var.lower():
+                    possible_paths.append(value)
         
         # Steam Deck specific locations
         steam_deck_paths = [
@@ -69,10 +82,17 @@ class DiscordRPC:
         ]
         possible_paths.extend(steam_deck_paths)
         
-        # Flatpak Discord locations (common on Steam Deck)
+        # Flatpak Discord locations (common on Steam Deck when installed from KDE Discover)
         flatpak_paths = [
             f"{runtime_dir}/app/com.discordapp.Discord/discord-ipc-0",
-            f"/home/{username}/.var/app/com.discordapp.Discord/discord-ipc-0"
+            f"/home/{username}/.var/app/com.discordapp.Discord/discord-ipc-0",
+            # Additional Flatpak runtime locations
+            f"{runtime_dir}/app/com.discordapp.Discord/discord-ipc-1",
+            f"{runtime_dir}/flatpak/com.discordapp.Discord/discord-ipc-0",
+            f"/run/user/{user_id}/app/com.discordapp.Discord/discord-ipc-0",
+            # KDE Discover Flatpak specific paths
+            f"/var/lib/flatpak/app/com.discordapp.Discord/current/active/files/discord-ipc-0",
+            f"/home/{username}/.local/share/flatpak/app/com.discordapp.Discord/current/active/files/discord-ipc-0"
         ]
         possible_paths.extend(flatpak_paths)
         
@@ -127,12 +147,30 @@ class DiscordRPC:
         try:
             result = subprocess.run(['ps', 'aux'], capture_output=True, text=True)
             discord_procs = [line for line in result.stdout.split('\n') if 'discord' in line.lower()]
+            flatpak_procs = [line for line in result.stdout.split('\n') if 'flatpak' in line.lower() and 'discord' in line.lower()]
+            
             if discord_procs:
                 log_debug("Running Discord processes:")
                 for proc in discord_procs:
                     log_debug(f"  {proc}")
             else:
                 log_debug("No Discord processes found running")
+                
+            if flatpak_procs:
+                log_debug("Running Flatpak Discord processes:")
+                for proc in flatpak_procs:
+                    log_debug(f"  {proc}")
+                    
+            # Check if Discord is installed as Flatpak
+            try:
+                flatpak_result = subprocess.run(['flatpak', 'list', '--app'], capture_output=True, text=True)
+                if 'com.discordapp.Discord' in flatpak_result.stdout:
+                    log_debug("Discord is installed as Flatpak app")
+                else:
+                    log_debug("Discord Flatpak app not found in flatpak list")
+            except Exception as flatpak_error:
+                log_debug(f"Could not check flatpak apps: {flatpak_error}")
+                
         except Exception as e:
             log_error(f"Could not check processes: {e}")
             
