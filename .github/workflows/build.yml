@@ -52,19 +52,30 @@ jobs:
         cp -r defaults release/discord-rpc/ 2>/dev/null || true
         cp -r py_modules release/discord-rpc/ 2>/dev/null || true
         
+    - name: Get version from tag
+      id: get_version
+      run: |
+        if [[ $GITHUB_REF == refs/tags/* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/}
+        else
+          VERSION=$(jq -r '.version' package.json)
+        fi
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Using version: $VERSION"
+        
     - name: Create release zip
       run: |
         cd release
-        zip -r discord-rpc-plugin.zip discord-rpc/
+        zip -r discord-rpc-plugin-${{ steps.get_version.outputs.version }}.zip discord-rpc/
         
     - name: Upload build artifacts
       uses: actions/upload-artifact@v5
       with:
-        name: discord-rpc-plugin
-        path: release/discord-rpc-plugin.zip
+        name: discord-rpc-plugin-${{ steps.get_version.outputs.version }}
+        path: release/discord-rpc-plugin-${{ steps.get_version.outputs.version }}.zip
         
     - name: Upload to release (if tagged)
       if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v2
       with:
-        files: release/discord-rpc-plugin.zip
+        files: release/discord-rpc-plugin-${{ steps.get_version.outputs.version }}.zip
