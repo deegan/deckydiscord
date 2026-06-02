@@ -147,35 +147,27 @@ class Plugin:
         """Check if there's a newer version available on GitHub."""
         try:
             # Get current version
-            current_version = "0.1.4"  # This should be updated automatically
+            current_version = "0.1.5"  # This should be updated automatically
             
             # GitHub API to get latest release
             api_url = "https://api.github.com/repos/deegan/deckydiscord/releases/latest"
             
             loop = asyncio.get_event_loop()
             def fetch_latest():
-                try:
-                    # Try with default SSL first
-                    req = urllib.request.Request(
-                        api_url,
-                        headers={'User-Agent': 'Deckycord-Plugin/0.1.1'}
-                    )
-                    with urllib.request.urlopen(req, timeout=10) as response:
-                        return json.loads(response.read().decode())
-                except (ssl.SSLError, urllib.error.URLError) as ssl_error:
-                    # Fallback: disable SSL verification for Steam Deck
-                    decky.logger.info(f"SSL error, trying without verification: {ssl_error}")
-                    ssl_context = ssl.create_default_context()
-                    ssl_context.check_hostname = False
-                    ssl_context.verify_mode = ssl.CERT_NONE
-                    
-                    req = urllib.request.Request(
-                        api_url,
-                        headers={'User-Agent': 'Deckycord-Plugin/0.1.1'}
-                    )
-                    
-                    with urllib.request.urlopen(req, context=ssl_context, timeout=10) as response:
-                        return json.loads(response.read().decode())
+                # Skip secure SSL entirely on Steam Deck - go straight to insecure
+                decky.logger.info(f"Checking for updates (Steam Deck SSL workaround)")
+                
+                ssl_context = ssl.create_default_context()
+                ssl_context.check_hostname = False
+                ssl_context.verify_mode = ssl.CERT_NONE
+                
+                req = urllib.request.Request(
+                    api_url,
+                    headers={'User-Agent': 'Deckycord-Plugin/0.1.4'}
+                )
+                
+                with urllib.request.urlopen(req, context=ssl_context, timeout=10) as response:
+                    return json.loads(response.read().decode())
             
             latest_release = await loop.run_in_executor(None, fetch_latest)
             latest_version = latest_release.get('tag_name', '')
@@ -228,29 +220,19 @@ class Plugin:
                 with tempfile.TemporaryDirectory() as temp_dir:
                     zip_path = os.path.join(temp_dir, "update.zip")
                     
-                    try:
-                        # Try with default SSL first
-                        req = urllib.request.Request(
-                            download_url,
-                            headers={'User-Agent': 'Deckycord-Plugin/0.1.1'}
-                        )
-                        with urllib.request.urlopen(req, timeout=30) as response:
-                            with open(zip_path, 'wb') as f:
-                                shutil.copyfileobj(response, f)
-                    except (ssl.SSLError, urllib.error.URLError):
-                        # Fallback: disable SSL verification
-                        ssl_context = ssl.create_default_context()
-                        ssl_context.check_hostname = False
-                        ssl_context.verify_mode = ssl.CERT_NONE
-                        
-                        req = urllib.request.Request(
-                            download_url,
-                            headers={'User-Agent': 'Deckycord-Plugin/0.1.1'}
-                        )
-                        
-                        with urllib.request.urlopen(req, context=ssl_context, timeout=30) as response:
-                            with open(zip_path, 'wb') as f:
-                                shutil.copyfileobj(response, f)
+                    # Skip secure SSL entirely on Steam Deck
+                    ssl_context = ssl.create_default_context()
+                    ssl_context.check_hostname = False
+                    ssl_context.verify_mode = ssl.CERT_NONE
+                    
+                    req = urllib.request.Request(
+                        download_url,
+                        headers={'User-Agent': 'Deckycord-Plugin/0.1.4'}
+                    )
+                    
+                    with urllib.request.urlopen(req, context=ssl_context, timeout=30) as response:
+                        with open(zip_path, 'wb') as f:
+                            shutil.copyfileobj(response, f)
                     
                     # Extract the ZIP
                     extract_path = os.path.join(temp_dir, "extracted")
