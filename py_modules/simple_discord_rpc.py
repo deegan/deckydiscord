@@ -14,6 +14,19 @@ import stat as stat_module
 import subprocess
 from typing import Dict, Any, Optional
 
+# Try to import decky logger for better logging
+try:
+    import decky
+    def log_debug(msg):
+        decky.logger.info(f"[Discord Debug] {msg}")
+    def log_error(msg):
+        decky.logger.error(f"[Discord Debug] {msg}")
+except ImportError:
+    def log_debug(msg):
+        print(f"[Discord Debug] {msg}")
+    def log_error(msg):
+        print(f"[Discord Debug ERROR] {msg}")
+
 
 class DiscordRPC:
     """Simple Discord RPC client that doesn't require pypresence."""
@@ -69,59 +82,59 @@ class DiscordRPC:
             for i in range(10):
                 possible_paths.append(f"{temp_dir}/discord-ipc-{i}")
         
-        debug_info.append(f"Searching {len(possible_paths)} possible socket locations...")
+        log_debug(f"Searching {len(possible_paths)} possible socket locations...")
         
         # Check which socket exists and is accessible
         for path in possible_paths:
-            debug_info.append(f"Checking: {path}")
+            log_debug(f"Checking: {path}")
             
             if os.path.exists(path):
-                debug_info.append(f"  ✓ File exists")
+                log_debug(f"  ✓ File exists")
                 try:
                     # Check if it's a socket
                     file_stat = os.stat(path)
                     if stat_module.S_ISSOCK(file_stat.st_mode):
-                        debug_info.append(f"  ✓ Is a socket")
+                        log_debug(f"  ✓ Is a socket")
                         
                         # Test if we can connect to this socket
                         test_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                         test_sock.settimeout(2)
                         test_sock.connect(path)
                         test_sock.close()
-                        debug_info.append(f"  ✓ Connection successful!")
+                        log_debug(f"  ✓ Connection successful!")
                         
-                        # Log debug info for successful connection
-                        print("Discord Socket Debug Info:")
+                        # Log debug info summary
+                        log_debug("=== DISCORD SOCKET FOUND ===")
                         for info in debug_info:
-                            print(f"  {info}")
+                            log_debug(f"  {info}")
                         
                         return path
                     else:
-                        debug_info.append(f"  ✗ Not a socket file")
+                        log_debug(f"  ✗ Not a socket file")
                         
                 except (socket.error, OSError, PermissionError) as e:
-                    debug_info.append(f"  ✗ Connection failed: {e}")
+                    log_debug(f"  ✗ Connection failed: {e}")
                     continue
             else:
-                debug_info.append(f"  ✗ File does not exist")
+                log_debug(f"  ✗ File does not exist")
         
         # Log debug info for failed search
-        print("Discord Socket Debug Info (No socket found):")
+        log_debug("=== NO DISCORD SOCKET FOUND ===")
         for info in debug_info:
-            print(f"  {info}")
+            log_debug(f"  {info}")
             
         # Additional debugging: check what Discord processes are running
         try:
             result = subprocess.run(['ps', 'aux'], capture_output=True, text=True)
             discord_procs = [line for line in result.stdout.split('\n') if 'discord' in line.lower()]
             if discord_procs:
-                print("Running Discord processes:")
+                log_debug("Running Discord processes:")
                 for proc in discord_procs:
-                    print(f"  {proc}")
+                    log_debug(f"  {proc}")
             else:
-                print("No Discord processes found running")
+                log_debug("No Discord processes found running")
         except Exception as e:
-            print(f"Could not check processes: {e}")
+            log_error(f"Could not check processes: {e}")
             
         return None
     
