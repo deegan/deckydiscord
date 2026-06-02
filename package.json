@@ -1,6 +1,6 @@
 {
   "name": "deckycord",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Control Discord from Steam Deck without leaving Big Picture Mode",
   "type": "module",
   "scripts": {

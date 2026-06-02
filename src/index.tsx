@@ -247,6 +247,65 @@ function Content() {
     }
   };
 
+  const handleAddServer = async () => {
+    if (!newServerName.trim()) return;
+    
+    try {
+      const result = await addServer(newServerName.trim());
+      if (result.success) {
+        toaster.toast({
+          title: "Server Added",
+          body: `Added "${newServerName}" to your servers`
+        });
+        setNewServerName("");
+        setShowAddServer(false);
+        // Refresh server list
+        await loadGuilds();
+      } else {
+        toaster.toast({
+          title: "Failed to Add Server",
+          body: result.error || "Unknown error"
+        });
+      }
+    } catch (error) {
+      console.error("Failed to add server:", error);
+      toaster.toast({
+        title: "Failed to Add Server",
+        body: "Network error"
+      });
+    }
+  };
+
+  const toggleServerFavorite = async (serverId: string) => {
+    try {
+      const result = await toggleFavorite(serverId);
+      if (result.success) {
+        await loadGuilds(); // Refresh to show updated favorite status
+        toaster.toast({
+          title: "Updated Favorite",
+          body: "Server favorite status updated"
+        });
+      }
+    } catch (error) {
+      console.error("Failed to toggle favorite:", error);
+    }
+  };
+
+  const removeServerById = async (serverId: string) => {
+    try {
+      const result = await removeServer(serverId);
+      if (result.success) {
+        await loadGuilds(); // Refresh server list
+        toaster.toast({
+          title: "Server Removed",
+          body: "Server removed from your list"
+        });
+      }
+    } catch (error) {
+      console.error("Failed to remove server:", error);
+    }
+  };
+
   const ServerRow = ({ server, isFavorite }: { server: Guild; isFavorite: boolean }) => {
     const isExpanded = expandedServer === server.id;
     const serverVoiceChannels = voiceChannels[server.id] || [];
@@ -254,16 +313,60 @@ function Content() {
     return (
       <div>
         <PanelSectionRow>
-          <Focusable 
-            style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px", cursor: "pointer" }}
-            onClick={() => handleServerClick(server.id)}
-          >
-            <FaServer style={{ color: isFavorite ? "#5865F2" : "#7289DA" }} />
-            <span style={{ flex: 1 }}>{server.name}</span>
-            <span style={{ fontSize: "0.8em", color: "#888" }}>
-              {isExpanded ? "▲" : "▼"}
-            </span>
-          </Focusable>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "4px" }}>
+            <Focusable 
+              style={{ display: "flex", alignItems: "center", gap: "8px", padding: "4px", cursor: "pointer", flex: 1 }}
+              onClick={() => handleServerClick(server.id)}
+            >
+              <FaServer style={{ color: isFavorite ? "#5865F2" : "#7289DA" }} />
+              <span style={{ flex: 1 }}>{server.name}</span>
+              <span style={{ fontSize: "0.8em", color: "#888" }}>
+                {isExpanded ? "▲" : "▼"}
+              </span>
+            </Focusable>
+            
+            {!server.configurable && (
+              <div style={{ display: "flex", gap: "4px" }}>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleServerFavorite(server.id);
+                  }}
+                  style={{
+                    background: "none",
+                    border: "1px solid #444",
+                    color: isFavorite ? "#FFD700" : "#888",
+                    padding: "2px 6px",
+                    borderRadius: "3px",
+                    fontSize: "0.8em",
+                    cursor: "pointer"
+                  }}
+                  title={isFavorite ? "Remove from favorites" : "Add to favorites"}
+                >
+                  {isFavorite ? "★" : "☆"}
+                </button>
+                
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeServerById(server.id);
+                  }}
+                  style={{
+                    background: "none",
+                    border: "1px solid #444",
+                    color: "#ff6b6b",
+                    padding: "2px 6px",
+                    borderRadius: "3px",
+                    fontSize: "0.8em",
+                    cursor: "pointer"
+                  }}
+                  title="Remove server"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+          </div>
         </PanelSectionRow>
         
         {isExpanded && (
@@ -397,7 +500,7 @@ function Content() {
             </PanelSection>
           )}
           
-          {guilds.length === 0 && (
+          {(favorites.length === 0 && servers.length === 0) && (
             <PanelSection title="Server Management">
               <PanelSectionRow>
                 <div style={{ color: "#888", fontStyle: "italic", textAlign: "center", padding: "16px" }}>
@@ -416,6 +519,77 @@ function Content() {
               </PanelSectionRow>
             </PanelSection>
           )}
+          
+          <PanelSection title="Add Discord Servers">
+            {!showAddServer ? (
+              <PanelSectionRow>
+                <ButtonItem
+                  layout="below"
+                  onClick={() => setShowAddServer(true)}
+                >
+                  ➕ Add Your Discord Server
+                </ButtonItem>
+              </PanelSectionRow>
+            ) : (
+              <>
+                <PanelSectionRow>
+                  <Field label="Server Name">
+                    <input
+                      type="text"
+                      value={newServerName}
+                      onChange={(e) => setNewServerName(e.target.value)}
+                      placeholder="e.g., My Gaming Server"
+                      style={{
+                        width: "100%",
+                        padding: "8px",
+                        fontSize: "14px",
+                        backgroundColor: "#1e1e1e",
+                        color: "#fff",
+                        border: "1px solid #444",
+                        borderRadius: "4px"
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          handleAddServer();
+                        } else if (e.key === "Escape") {
+                          setShowAddServer(false);
+                          setNewServerName("");
+                        }
+                      }}
+                      autoFocus
+                    />
+                  </Field>
+                </PanelSectionRow>
+                
+                <PanelSectionRow>
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <ButtonItem
+                      layout="below"
+                      onClick={handleAddServer}
+                      disabled={!newServerName.trim()}
+                    >
+                      Add Server
+                    </ButtonItem>
+                    <ButtonItem
+                      layout="below"
+                      onClick={() => {
+                        setShowAddServer(false);
+                        setNewServerName("");
+                      }}
+                    >
+                      Cancel
+                    </ButtonItem>
+                  </div>
+                </PanelSectionRow>
+                
+                <PanelSectionRow>
+                  <div style={{ fontSize: "0.8em", color: "#888", fontStyle: "italic" }}>
+                    💡 Add the names of your Discord servers. You can join their voice channels even though we can't fetch them automatically due to Discord's API restrictions.
+                  </div>
+                </PanelSectionRow>
+              </>
+            )}
+          </PanelSection>
         </>
       )}
 
