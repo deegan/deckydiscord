@@ -3,6 +3,10 @@ import sys
 import decky
 import asyncio
 import json
+import urllib.request
+import shutil
+import tempfile
+import zipfile
 from typing import Dict, List, Optional
 
 # Add py_modules to path for bundled dependencies
@@ -24,6 +28,8 @@ class Plugin:
         self.rpc = None
         self.connected = False
         self.connection_error = None
+        self.config_file = os.path.join(os.path.dirname(__file__), "server_config.json")
+        self.servers = self._load_servers()
         
     async def get_connection_status(self) -> Dict[str, any]:
         return {
@@ -75,24 +81,9 @@ class Plugin:
         return await self.get_connection_status()
     
     async def get_guilds(self) -> Dict[str, any]:
-        decky.logger.info(f"get_guilds called - connected: {self.connected}, rpc exists: {self.rpc is not None}")
-        
-        if not self.connected:
-            return {"success": False, "error": "Not connected to Discord"}
-            
-        try:
-            # Use our bundled RPC implementation
-            if self.rpc and self.rpc.is_connected():
-                loop = asyncio.get_event_loop()
-                guilds_data = await loop.run_in_executor(None, self.rpc.get_guilds)
-                return guilds_data
-            else:
-                decky.logger.error(f"RPC client state - exists: {self.rpc is not None}, connected: {self.rpc.is_connected() if self.rpc else False}")
-                return {"success": False, "error": "RPC client not properly connected"}
-            
-        except Exception as e:
-            decky.logger.error(f"Error fetching guilds: {e}")
-            return {"success": False, "error": str(e)}
+        """Get guilds - now redirects to the new server management system."""
+        decky.logger.info(f"get_guilds called - redirecting to get_servers")
+        return await self.get_servers()
 
     async def debug_discord_connection(self) -> Dict[str, any]:
         """Debug Discord connection issues with detailed logging."""
@@ -149,6 +140,205 @@ class Plugin:
                 "error": str(e),
                 "message": "Debug function failed - check logs"
             }
+
+    async def check_for_updates(self) -> Dict[str, any]:
+        """Check if there's a newer version available on GitHub."""
+        try:
+            # Get current version
+            current_version = "0.1.0"  # This should be updated automatically
+            
+            # GitHub API to get latest release
+            api_url = "https://api.github.com/repos/deegan/deckydiscord/releases/latest"
+            
+            loop = asyncio.get_event_loop()
+            def fetch_latest():
+                with urllib.request.urlopen(api_url) as response:
+                    return json.loads(response.read().decode())
+            
+            latest_release = await loop.run_in_executor(None, fetch_latest)
+            latest_version = latest_release.get('tag_name', '')
+            
+            # Compare versions
+            is_newer = latest_version != f"v{current_version}"
+            
+            return {
+                "success": True,
+                "current_version": current_version,
+                "latest_version": latest_version,
+                "update_available": is_newer,
+                "download_url": latest_release.get('assets', [{}])[0].get('browser_download_url') if latest_release.get('assets') else None
+            }
+            
+        except Exception as e:
+            decky.logger.error(f"Error checking for updates: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to check for updates"
+            }
+
+    async def update_plugin(self) -> Dict[str, any]:
+        """Download and install the latest version of the plugin."""
+        try:
+            # First check for updates
+            update_check = await self.check_for_updates()
+            if not update_check.get("success") or not update_check.get("update_available"):
+                return {
+                    "success": False,
+                    "message": "No updates available or update check failed"
+                }
+            
+            download_url = update_check.get("download_url")
+            if not download_url:
+                return {
+                    "success": False,
+                    "message": "No download URL found"
+                }
+            
+            decky.logger.info(f"Downloading update from: {download_url}")
+            
+            loop = asyncio.get_event_loop()
+            
+            def download_and_install():
+                # Download the update
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    zip_path = os.path.join(temp_dir, "update.zip")
+                    urllib.request.urlretrieve(download_url, zip_path)
+                    
+                    # Extract the ZIP
+                    extract_path = os.path.join(temp_dir, "extracted")
+                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                        zip_ref.extractall(extract_path)
+                    
+                    # Find the plugin directory in the extracted files
+                    plugin_source = None
+                    for item in os.listdir(extract_path):
+                        if os.path.isdir(os.path.join(extract_path, item)):
+                            plugin_source = os.path.join(extract_path, item)
+                            break
+                    
+                    if not plugin_source:
+                        raise Exception("Could not find plugin directory in download")
+                    
+                    # Copy files to current plugin directory
+                    plugin_target = os.path.dirname(os.path.abspath(__file__))
+                    for item in os.listdir(plugin_source):
+                        source_path = os.path.join(plugin_source, item)
+                        target_path = os.path.join(plugin_target, item)
+                        
+                        if os.path.isdir(source_path):
+                            if os.path.exists(target_path):
+                                shutil.rmtree(target_path)
+                            shutil.copytree(source_path, target_path)
+                        else:
+                            shutil.copy2(source_path, target_path)
+                    
+                    return True
+            
+            await loop.run_in_executor(None, download_and_install)
+            
+            decky.logger.info("Plugin updated successfully")
+            return {
+                "success": True,
+                "message": f"Updated to {update_check.get('latest_version')}. Please reload the plugin."
+            }
+            
+        except Exception as e:
+            decky.logger.error(f"Error updating plugin: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to update plugin"
+            }
+
+    def _load_servers(self) -> List[Dict]:
+        """Load server configuration from file."""
+        try:
+            if os.path.exists(self.config_file):
+                with open(self.config_file, 'r') as f:
+                    return json.load(f)
+        except Exception as e:
+            decky.logger.warning(f"Could not load server config: {e}")
+        
+        # Default server list
+        return [
+            {"id": "add_server", "name": "➕ Add Your Discord Server", "favorite": False, "configurable": True},
+            {"id": "example1", "name": "🎮 Gaming Server", "favorite": True, "configurable": False},
+            {"id": "example2", "name": "👥 Friends Chat", "favorite": True, "configurable": False}
+        ]
+
+    def _save_servers(self) -> bool:
+        """Save server configuration to file."""
+        try:
+            with open(self.config_file, 'w') as f:
+                json.dump(self.servers, f, indent=2)
+            return True
+        except Exception as e:
+            decky.logger.error(f"Could not save server config: {e}")
+            return False
+
+    async def add_server(self, name: str) -> Dict[str, any]:
+        """Add a new server to the list."""
+        try:
+            import uuid
+            new_server = {
+                "id": str(uuid.uuid4()),
+                "name": name,
+                "favorite": True,
+                "configurable": False
+            }
+            self.servers.append(new_server)
+            
+            if self._save_servers():
+                return {"success": True, "server": new_server}
+            else:
+                return {"success": False, "error": "Failed to save server"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def remove_server(self, server_id: str) -> Dict[str, any]:
+        """Remove a server from the list."""
+        try:
+            self.servers = [s for s in self.servers if s["id"] != server_id]
+            
+            if self._save_servers():
+                return {"success": True}
+            else:
+                return {"success": False, "error": "Failed to save changes"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def toggle_favorite(self, server_id: str) -> Dict[str, any]:
+        """Toggle favorite status of a server."""
+        try:
+            for server in self.servers:
+                if server["id"] == server_id:
+                    server["favorite"] = not server.get("favorite", False)
+                    break
+            
+            if self._save_servers():
+                return {"success": True}
+            else:
+                return {"success": False, "error": "Failed to save changes"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def get_servers(self) -> Dict[str, any]:
+        """Get the configured server list with favorites."""
+        if not self.connected:
+            return {"success": False, "error": "Not connected to Discord"}
+        
+        # Separate favorites from regular servers
+        favorites = [s for s in self.servers if s.get("favorite", False)]
+        regular = [s for s in self.servers if not s.get("favorite", False)]
+        
+        return {
+            "success": True,
+            "connected_to_discord": True,
+            "favorites": favorites,
+            "servers": regular,
+            "total_count": len(self.servers)
+        }
 
     async def _main(self):
         self.loop = asyncio.get_event_loop()

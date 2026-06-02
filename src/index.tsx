@@ -39,14 +39,26 @@ const connectToDiscord = callable<[], ConnectionStatus>("connect_to_discord");
 const disconnectFromDiscord = callable<[], ConnectionStatus>("disconnect_from_discord");
 const getGuilds = callable<[], GuildsResponse>("get_guilds");
 const debugDiscordConnection = callable<[], any>("debug_discord_connection");
+const checkForUpdates = callable<[], any>("check_for_updates");
+const updatePlugin = callable<[], any>("update_plugin");
+const getServers = callable<[], any>("get_servers");
+const addServer = callable<[string], any>("add_server");
+const removeServer = callable<[string], any>("remove_server");
+const toggleFavorite = callable<[string], any>("toggle_favorite");
 
 function Content() {
   const [status, setStatus] = useState<ConnectionStatus>({ connected: false, pypresence_available: false });
   const [guilds, setGuilds] = useState<Guild[]>([]);
+  const [favorites, setFavorites] = useState<Guild[]>([]);
+  const [servers, setServers] = useState<Guild[]>([]);
   const [loading, setLoading] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<any>(null);
+  const [showAddServer, setShowAddServer] = useState(false);
+  const [newServerName, setNewServerName] = useState("");
 
   useEffect(() => {
     loadStatus();
+    checkUpdates();
   }, []);
 
   const loadStatus = async () => {
@@ -131,6 +143,34 @@ function Content() {
         title: "Debug Failed",
         body: "Check console for details"
       });
+    }
+  };
+
+  const checkUpdates = async () => {
+    try {
+      const result = await checkForUpdates();
+      setUpdateInfo(result);
+    } catch (error) {
+      console.error("Update check failed:", error);
+    }
+  };
+
+  const handleUpdate = async () => {
+    try {
+      setLoading(true);
+      const result = await updatePlugin();
+      toaster.toast({
+        title: result.success ? "Update Successful" : "Update Failed",
+        body: result.message
+      });
+      if (result.success) {
+        // Refresh update info
+        await checkUpdates();
+      }
+    } catch (error) {
+      console.error("Update error:", error);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -221,20 +261,48 @@ function Content() {
           </PanelSectionRow>
         </PanelSection>
       )}
+
+      <PanelSection title="Plugin Management">
+        <PanelSectionRow>
+          <Field label="Version">
+            <span style={{ fontSize: "0.9em" }}>
+              {updateInfo?.current_version || "Unknown"}
+            </span>
+          </Field>
+        </PanelSectionRow>
+        
+        {updateInfo?.update_available && (
+          <PanelSectionRow>
+            <div style={{ color: "#5865F2", fontSize: "0.9em" }}>
+              Update available: {updateInfo.latest_version}
+            </div>
+          </PanelSectionRow>
+        )}
+        
+        <PanelSectionRow>
+          <ButtonItem
+            layout="below"
+            onClick={updateInfo?.update_available ? handleUpdate : checkUpdates}
+            disabled={loading}
+          >
+            {loading ? "Updating..." : updateInfo?.update_available ? "Update Now" : "Check for Updates"}
+          </ButtonItem>
+        </PanelSectionRow>
+      </PanelSection>
     </>
   );
 };
 
 export default definePlugin(() => {
-  console.log("Discord RPC plugin initializing")
+  console.log("Deckycord plugin initializing")
 
   return {
-    name: "Discord RPC",
-    titleView: <div className={staticClasses.Title}>Discord RPC</div>,
+    name: "Deckycord",
+    titleView: <div className={staticClasses.Title}>Deckycord</div>,
     content: <Content />,
     icon: <FaDiscord />,
     onDismount() {
-      console.log("Discord RPC plugin unloading")
+      console.log("Deckycord plugin unloading")
     },
   };
 });
