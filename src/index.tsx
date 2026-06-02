@@ -26,6 +26,15 @@ interface Guild {
   id: string;
   name: string;
   icon?: string;
+  favorite?: boolean;
+  configurable?: boolean;
+}
+
+interface VoiceChannel {
+  id: string;
+  name: string;
+  user_limit: number;
+  position: number;
 }
 
 interface GuildsResponse {
@@ -45,6 +54,9 @@ const getServers = callable<[], any>("get_servers");
 const addServer = callable<[string], any>("add_server");
 const removeServer = callable<[string], any>("remove_server");
 const toggleFavorite = callable<[string], any>("toggle_favorite");
+const getVoiceChannels = callable<[string], any>("get_voice_channels");
+const joinVoiceChannel = callable<[string, string], any>("join_voice_channel");
+const leaveVoiceChannel = callable<[string], any>("leave_voice_channel");
 
 function Content() {
   const [status, setStatus] = useState<ConnectionStatus>({ connected: false, pypresence_available: false });
@@ -55,6 +67,8 @@ function Content() {
   const [updateInfo, setUpdateInfo] = useState<any>(null);
   const [showAddServer, setShowAddServer] = useState(false);
   const [newServerName, setNewServerName] = useState("");
+  const [expandedServer, setExpandedServer] = useState<string | null>(null);
+  const [voiceChannels, setVoiceChannels] = useState<{[serverId: string]: VoiceChannel[]}>({});
 
   useEffect(() => {
     loadStatus();
@@ -186,6 +200,118 @@ function Content() {
     }
   };
 
+  const handleServerClick = async (serverId: string) => {
+    if (expandedServer === serverId) {
+      // Collapse if already expanded
+      setExpandedServer(null);
+    } else {
+      // Expand and load voice channels
+      setExpandedServer(serverId);
+      if (!voiceChannels[serverId]) {
+        try {
+          const result = await getVoiceChannels(serverId);
+          if (result.success) {
+            setVoiceChannels(prev => ({
+              ...prev,
+              [serverId]: result.voice_channels || []
+            }));
+          }
+        } catch (error) {
+          console.error("Failed to load voice channels:", error);
+        }
+      }
+    }
+  };
+
+  const handleJoinVoice = async (channelId: string, serverId: string) => {
+    try {
+      const result = await joinVoiceChannel(channelId, serverId);
+      toaster.toast({
+        title: result.success ? "Joined Voice Channel" : "Join Failed",
+        body: result.message || result.error || result.mock_action || "Unknown result"
+      });
+    } catch (error) {
+      console.error("Failed to join voice channel:", error);
+    }
+  };
+
+  const handleLeaveVoice = async (serverId: string) => {
+    try {
+      const result = await leaveVoiceChannel(serverId);
+      toaster.toast({
+        title: result.success ? "Left Voice Channel" : "Leave Failed", 
+        body: result.message || result.error || result.mock_action || "Unknown result"
+      });
+    } catch (error) {
+      console.error("Failed to leave voice channel:", error);
+    }
+  };
+
+  const ServerRow = ({ server, isFavorite }: { server: Guild; isFavorite: boolean }) => {
+    const isExpanded = expandedServer === server.id;
+    const serverVoiceChannels = voiceChannels[server.id] || [];
+    
+    return (
+      <div>
+        <PanelSectionRow>
+          <Focusable 
+            style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px", cursor: "pointer" }}
+            onClick={() => handleServerClick(server.id)}
+          >
+            <FaServer style={{ color: isFavorite ? "#5865F2" : "#7289DA" }} />
+            <span style={{ flex: 1 }}>{server.name}</span>
+            <span style={{ fontSize: "0.8em", color: "#888" }}>
+              {isExpanded ? "▲" : "▼"}
+            </span>
+          </Focusable>
+        </PanelSectionRow>
+        
+        {isExpanded && (
+          <div style={{ marginLeft: "20px", borderLeft: "2px solid #444", paddingLeft: "10px" }}>
+            {serverVoiceChannels.length > 0 ? (
+              serverVoiceChannels.map((channel) => (
+                <PanelSectionRow key={channel.id}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "4px 8px" }}>
+                    <span style={{ color: "#888", fontSize: "0.9em" }}>🎙️</span>
+                    <span style={{ flex: 1, fontSize: "0.9em" }}>{channel.name}</span>
+                    {channel.user_limit > 0 && (
+                      <span style={{ fontSize: "0.8em", color: "#888" }}>
+                        (0/{channel.user_limit})
+                      </span>
+                    )}
+                    <ButtonItem
+                      layout="below"
+                      onClick={() => handleJoinVoice(channel.id, server.id)}
+                      style={{ fontSize: "0.8em", padding: "2px 8px" }}
+                    >
+                      Join
+                    </ButtonItem>
+                  </div>
+                </PanelSectionRow>
+              ))
+            ) : (
+              <PanelSectionRow>
+                <div style={{ color: "#888", fontStyle: "italic", fontSize: "0.9em", padding: "4px 8px" }}>
+                  No voice channels found
+                </div>
+              </PanelSectionRow>
+            )}
+            
+            <PanelSectionRow>
+              <ButtonItem
+                layout="below"
+                onClick={() => handleLeaveVoice(server.id)}
+                style={{ fontSize: "0.8em", padding: "2px 8px" }}
+              >
+                Leave Voice Channel
+              </ButtonItem>
+            </PanelSectionRow>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <>
       <PanelSection title="Connection Status">
@@ -249,12 +375,7 @@ function Content() {
           {favorites.length > 0 && (
             <PanelSection title="⭐ Favorite Servers">
               {favorites.map((server) => (
-                <PanelSectionRow key={server.id}>
-                  <Focusable style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px" }}>
-                    <FaServer style={{ color: "#5865F2" }} />
-                    <span>{server.name}</span>
-                  </Focusable>
-                </PanelSectionRow>
+                <ServerRow key={server.id} server={server} isFavorite={true} />
               ))}
             </PanelSection>
           )}
@@ -262,12 +383,7 @@ function Content() {
           {servers.length > 0 && (
             <PanelSection title="📋 All Servers">
               {servers.map((server) => (
-                <PanelSectionRow key={server.id}>
-                  <Focusable style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px" }}>
-                    <FaServer style={{ color: "#7289DA" }} />
-                    <span>{server.name}</span>
-                  </Focusable>
-                </PanelSectionRow>
+                <ServerRow key={server.id} server={server} isFavorite={false} />
               ))}
               
               <PanelSectionRow>

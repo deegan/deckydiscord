@@ -147,7 +147,7 @@ class Plugin:
         """Check if there's a newer version available on GitHub."""
         try:
             # Get current version
-            current_version = "0.1.2"  # This should be updated automatically
+            current_version = "0.1.3"  # This should be updated automatically
             
             # GitHub API to get latest release
             api_url = "https://api.github.com/repos/deegan/deckydiscord/releases/latest"
@@ -384,6 +384,66 @@ class Plugin:
             "servers": regular,
             "total_count": len(self.servers)
         }
+
+    async def get_voice_channels(self, guild_id: str) -> Dict[str, any]:
+        """Get voice channels for a specific server/guild."""
+        if not self.connected or not self.rpc:
+            return {"success": False, "error": "Not connected to Discord"}
+        
+        try:
+            loop = asyncio.get_event_loop()
+            channels_data = await loop.run_in_executor(
+                None, 
+                self.rpc.get_voice_channels, 
+                guild_id
+            )
+            return channels_data
+        except Exception as e:
+            decky.logger.error(f"Error fetching voice channels: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def join_voice_channel(self, channel_id: str, guild_id: str) -> Dict[str, any]:
+        """Join a voice channel."""
+        if not self.connected or not self.rpc:
+            return {"success": False, "error": "Not connected to Discord"}
+        
+        try:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                self.rpc.join_voice_channel,
+                channel_id,
+                guild_id
+            )
+            
+            if result.get("success"):
+                decky.logger.info(f"Successfully joined voice channel {channel_id}")
+            
+            return result
+        except Exception as e:
+            decky.logger.error(f"Error joining voice channel: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def leave_voice_channel(self, guild_id: str) -> Dict[str, any]:
+        """Leave current voice channel in guild."""
+        if not self.connected or not self.rpc:
+            return {"success": False, "error": "Not connected to Discord"}
+        
+        try:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                self.rpc.leave_voice_channel,
+                guild_id
+            )
+            
+            if result.get("success"):
+                decky.logger.info(f"Successfully left voice channel in guild {guild_id}")
+            
+            return result
+        except Exception as e:
+            decky.logger.error(f"Error leaving voice channel: {e}")
+            return {"success": False, "error": str(e)}
 
     async def _main(self):
         self.loop = asyncio.get_event_loop()

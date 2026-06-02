@@ -317,6 +317,149 @@ class DiscordRPC:
             ]
         }
     
+    def get_voice_channels(self, guild_id: str) -> Dict[str, Any]:
+        """Get voice channels for a specific guild/server."""
+        if not self.connected:
+            raise ConnectionError("Not connected to Discord")
+        
+        try:
+            # Send RPC command to get voice channels for guild
+            channels_request = {
+                "cmd": "GET_CHANNELS",
+                "args": {"guild_id": guild_id},
+                "nonce": f"channels-{guild_id}"
+            }
+            
+            log_debug(f"Requesting voice channels for guild {guild_id}...")
+            self._send_data(1, channels_request)  # Opcode 1 = frame
+            
+            # Read response
+            op, data = self._recv_data()
+            if op == 1:  # Opcode 1 = frame
+                response = json.loads(data.decode('utf-8'))
+                log_debug(f"Channels response: {response}")
+                
+                if response.get('cmd') == 'GET_CHANNELS' and response.get('evt') == 'RESPONSE':
+                    channels_data = response.get('data', {}).get('channels', [])
+                    
+                    # Filter for voice channels only
+                    voice_channels = []
+                    for channel in channels_data:
+                        if channel.get('type') == 2:  # Voice channel type
+                            voice_channels.append({
+                                "id": channel.get('id'),
+                                "name": channel.get('name'),
+                                "user_limit": channel.get('user_limit', 0),
+                                "position": channel.get('position', 0)
+                            })
+                    
+                    log_debug(f"Found {len(voice_channels)} voice channels")
+                    return {
+                        "success": True,
+                        "guild_id": guild_id,
+                        "voice_channels": voice_channels
+                    }
+                else:
+                    log_debug(f"Unexpected channels response: {response}")
+                    
+        except Exception as e:
+            log_error(f"Error fetching voice channels: {e}")
+            
+        # Fallback: return mock voice channels for demo
+        return {
+            "success": False,
+            "guild_id": guild_id,
+            "voice_channels": [
+                {"id": "voice1", "name": "🔊 General", "user_limit": 0, "position": 1},
+                {"id": "voice2", "name": "🎮 Gaming", "user_limit": 10, "position": 2},
+                {"id": "voice3", "name": "🎵 Music", "user_limit": 5, "position": 3}
+            ],
+            "mock": True
+        }
+
+    def join_voice_channel(self, channel_id: str, guild_id: str) -> Dict[str, Any]:
+        """Join a voice channel."""
+        if not self.connected:
+            raise ConnectionError("Not connected to Discord")
+        
+        try:
+            # Send RPC command to join voice channel
+            join_request = {
+                "cmd": "SELECT_VOICE_CHANNEL",
+                "args": {
+                    "channel_id": channel_id,
+                    "guild_id": guild_id
+                },
+                "nonce": f"join-{channel_id}"
+            }
+            
+            log_debug(f"Joining voice channel {channel_id} in guild {guild_id}...")
+            self._send_data(1, join_request)
+            
+            # Read response
+            op, data = self._recv_data()
+            if op == 1:
+                response = json.loads(data.decode('utf-8'))
+                log_debug(f"Join voice response: {response}")
+                
+                if response.get('cmd') == 'SELECT_VOICE_CHANNEL' and response.get('evt') == 'RESPONSE':
+                    return {
+                        "success": True,
+                        "channel_id": channel_id,
+                        "guild_id": guild_id,
+                        "message": "Successfully joined voice channel"
+                    }
+                    
+        except Exception as e:
+            log_error(f"Error joining voice channel: {e}")
+            
+        return {
+            "success": False,
+            "error": "Failed to join voice channel",
+            "mock_action": f"Would join voice channel {channel_id}"
+        }
+
+    def leave_voice_channel(self, guild_id: str) -> Dict[str, Any]:
+        """Leave current voice channel in guild."""
+        if not self.connected:
+            raise ConnectionError("Not connected to Discord")
+        
+        try:
+            # Send RPC command to leave voice channel
+            leave_request = {
+                "cmd": "SELECT_VOICE_CHANNEL",
+                "args": {
+                    "channel_id": None,
+                    "guild_id": guild_id
+                },
+                "nonce": f"leave-{guild_id}"
+            }
+            
+            log_debug(f"Leaving voice channel in guild {guild_id}...")
+            self._send_data(1, leave_request)
+            
+            # Read response  
+            op, data = self._recv_data()
+            if op == 1:
+                response = json.loads(data.decode('utf-8'))
+                log_debug(f"Leave voice response: {response}")
+                
+                if response.get('cmd') == 'SELECT_VOICE_CHANNEL' and response.get('evt') == 'RESPONSE':
+                    return {
+                        "success": True,
+                        "guild_id": guild_id,
+                        "message": "Successfully left voice channel"
+                    }
+                    
+        except Exception as e:
+            log_error(f"Error leaving voice channel: {e}")
+            
+        return {
+            "success": False,
+            "error": "Failed to leave voice channel",
+            "mock_action": f"Would leave voice channel in guild {guild_id}"
+        }
+
     def is_connected(self) -> bool:
         """Check if connected to Discord."""
         return self.connected and self.socket is not None
