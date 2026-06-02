@@ -196,12 +196,23 @@ class DiscordRPC:
             
             # Read handshake response
             op, data = self._recv_data()
+            log_debug(f"Received handshake response - opcode: {op}, data length: {len(data)}")
+            
             if op == 1:  # Opcode 1 = frame
                 response = json.loads(data.decode('utf-8'))
-                if response.get('evt') == 'READY':
+                log_debug(f"Handshake response: {response}")
+                
+                # Check for READY event or successful handshake
+                if response.get('evt') == 'READY' or response.get('cmd') == 'DISPATCH':
                     self.connected = True
+                    log_debug("Successfully connected - handshake complete")
                     return True
+                else:
+                    log_debug(f"Unexpected handshake response - evt: {response.get('evt')}, cmd: {response.get('cmd')}")
+            else:
+                log_debug(f"Unexpected opcode in handshake response: {op}")
             
+            self.connected = False
             return False
             
         except Exception as e:

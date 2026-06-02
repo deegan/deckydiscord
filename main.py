@@ -43,11 +43,16 @@ class Plugin:
             
             # Run the blocking connect call in a thread to avoid blocking the event loop
             loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, self.rpc.connect)
+            connection_result = await loop.run_in_executor(None, self.rpc.connect)
             
-            self.connected = True
-            self.connection_error = None
-            decky.logger.info("Successfully connected to Discord RPC")
+            if connection_result and self.rpc.is_connected():
+                self.connected = True
+                self.connection_error = None
+                decky.logger.info(f"Successfully connected to Discord RPC - connection state: {self.rpc.is_connected()}")
+            else:
+                self.connected = False
+                self.connection_error = "Discord RPC connect() returned False"
+                decky.logger.error("Discord RPC connect() succeeded but connection state is False")
             
         except Exception as e:
             self.connected = False
@@ -70,17 +75,20 @@ class Plugin:
         return await self.get_connection_status()
     
     async def get_guilds(self) -> Dict[str, any]:
+        decky.logger.info(f"get_guilds called - connected: {self.connected}, rpc exists: {self.rpc is not None}")
+        
         if not self.connected:
             return {"success": False, "error": "Not connected to Discord"}
             
         try:
             # Use our bundled RPC implementation
-            if self.rpc:
+            if self.rpc and self.rpc.is_connected():
                 loop = asyncio.get_event_loop()
                 guilds_data = await loop.run_in_executor(None, self.rpc.get_guilds)
                 return guilds_data
             else:
-                return {"success": False, "error": "RPC client not initialized"}
+                decky.logger.error(f"RPC client state - exists: {self.rpc is not None}, connected: {self.rpc.is_connected() if self.rpc else False}")
+                return {"success": False, "error": "RPC client not properly connected"}
             
         except Exception as e:
             decky.logger.error(f"Error fetching guilds: {e}")
