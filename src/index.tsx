@@ -76,9 +76,17 @@ function Content() {
 
   const loadGuilds = async () => {
     try {
-      const response = await getGuilds();
-      if (response.success && response.guilds) {
-        setGuilds(response.guilds);
+      const response = await getServers();
+      console.log("Server response:", response); // Debug log
+      
+      if (response.success) {
+        // Handle new response format with favorites and servers arrays
+        const favs = response.favorites || [];
+        const regs = response.servers || [];
+        
+        setFavorites(favs);
+        setServers(regs);
+        setGuilds([...favs, ...regs]); // Keep legacy guilds for compatibility
       } else {
         toaster.toast({
           title: "Failed to load servers",
@@ -86,7 +94,11 @@ function Content() {
         });
       }
     } catch (error) {
-      console.error("Failed to load guilds:", error);
+      console.error("Failed to load servers:", error);
+      toaster.toast({
+        title: "Failed to load servers",
+        body: "Network error"
+      });
     }
   };
 
@@ -233,33 +245,62 @@ function Content() {
       </PanelSection>
 
       {status.connected && (
-        <PanelSection title="Discord Servers">
-          {guilds.length > 0 ? (
-            guilds.map((guild) => (
-              <PanelSectionRow key={guild.id}>
-                <Focusable style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px" }}>
-                  <FaServer style={{ color: "#7289DA" }} />
-                  <span>{guild.name}</span>
-                </Focusable>
-              </PanelSectionRow>
-            ))
-          ) : (
-            <PanelSectionRow>
-              <div style={{ color: "#888", fontStyle: "italic" }}>
-                No servers found or loading...
-              </div>
-            </PanelSectionRow>
+        <>
+          {favorites.length > 0 && (
+            <PanelSection title="⭐ Favorite Servers">
+              {favorites.map((server) => (
+                <PanelSectionRow key={server.id}>
+                  <Focusable style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px" }}>
+                    <FaServer style={{ color: "#5865F2" }} />
+                    <span>{server.name}</span>
+                  </Focusable>
+                </PanelSectionRow>
+              ))}
+            </PanelSection>
           )}
           
-          <PanelSectionRow>
-            <ButtonItem
-              layout="below"
-              onClick={loadGuilds}
-            >
-              Refresh Servers
-            </ButtonItem>
-          </PanelSectionRow>
-        </PanelSection>
+          {servers.length > 0 && (
+            <PanelSection title="📋 All Servers">
+              {servers.map((server) => (
+                <PanelSectionRow key={server.id}>
+                  <Focusable style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px" }}>
+                    <FaServer style={{ color: "#7289DA" }} />
+                    <span>{server.name}</span>
+                  </Focusable>
+                </PanelSectionRow>
+              ))}
+              
+              <PanelSectionRow>
+                <ButtonItem
+                  layout="below"
+                  onClick={loadGuilds}
+                >
+                  Refresh Servers
+                </ButtonItem>
+              </PanelSectionRow>
+            </PanelSection>
+          )}
+          
+          {guilds.length === 0 && (
+            <PanelSection title="Server Management">
+              <PanelSectionRow>
+                <div style={{ color: "#888", fontStyle: "italic", textAlign: "center", padding: "16px" }}>
+                  No servers configured yet.{"\n"}
+                  Add your Discord servers below!
+                </div>
+              </PanelSectionRow>
+              
+              <PanelSectionRow>
+                <ButtonItem
+                  layout="below"
+                  onClick={loadGuilds}
+                >
+                  Load Default Servers
+                </ButtonItem>
+              </PanelSectionRow>
+            </PanelSection>
+          )}
+        </>
       )}
 
       <PanelSection title="Plugin Management">
