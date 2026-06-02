@@ -31,7 +31,7 @@ except ImportError:
 class DiscordRPC:
     """Simple Discord RPC client that doesn't require pypresence."""
     
-    def __init__(self, client_id: str = "1234567890123456789"):
+    def __init__(self, client_id: str = "1511445489386787129"):
         self.client_id = client_id
         self.socket = None
         self.connected = False
@@ -203,9 +203,14 @@ class DiscordRPC:
                 log_debug(f"Handshake response: {response}")
                 
                 # Check for READY event or successful handshake
-                if response.get('evt') == 'READY' or response.get('cmd') == 'DISPATCH':
+                if response.get('evt') == 'READY':
                     self.connected = True
-                    log_debug("Successfully connected - handshake complete")
+                    log_debug("Successfully connected - handshake complete with READY event")
+                    log_debug(f"Discord user: {response.get('data', {}).get('user', {}).get('username', 'unknown')}")
+                    return True
+                elif response.get('cmd') == 'DISPATCH':
+                    self.connected = True
+                    log_debug("Successfully connected - handshake complete with DISPATCH")
                     return True
                 else:
                     log_debug(f"Unexpected handshake response - evt: {response.get('evt')}, cmd: {response.get('cmd')}")
@@ -286,24 +291,61 @@ class DiscordRPC:
     def get_guilds(self) -> Dict[str, Any]:
         """
         Get user's Discord guilds (servers).
-        Note: This requires special Discord app permissions that aren't available
-        for basic RPC connections. Returns mock data for now.
+        Now attempts to fetch real guild data using Discord RPC.
         """
         if not self.connected:
             raise ConnectionError("Not connected to Discord")
         
-        # Discord RPC doesn't actually expose guild information without
-        # special app approval and a real client ID. For a basic plugin, 
-        # we return mock data that users can modify for their specific servers.
-        log_debug("Returning mock guild data - Discord IPC connection confirmed working")
+        try:
+            # Send RPC command to get guilds
+            guild_request = {
+                "cmd": "GET_GUILDS",
+                "args": {},
+                "nonce": "guild-request-1"
+            }
+            
+            log_debug("Requesting real guild data from Discord...")
+            self._send_data(1, guild_request)  # Opcode 1 = frame
+            
+            # Read response
+            op, data = self._recv_data()
+            if op == 1:  # Opcode 1 = frame
+                response = json.loads(data.decode('utf-8'))
+                log_debug(f"Guild response: {response}")
+                
+                if response.get('cmd') == 'GET_GUILDS' and response.get('evt') == 'RESPONSE':
+                    guilds_data = response.get('data', {}).get('guilds', [])
+                    log_debug(f"Found {len(guilds_data)} real Discord guilds")
+                    
+                    # Transform Discord guild data to our format
+                    guilds = []
+                    for guild in guilds_data:
+                        guilds.append({
+                            "id": guild.get('id'),
+                            "name": guild.get('name'),
+                            "icon": guild.get('icon')
+                        })
+                    
+                    return {
+                        "success": True,
+                        "guilds": guilds
+                    }
+                else:
+                    log_debug(f"Unexpected guild response format: {response}")
+                    
+        except Exception as e:
+            log_error(f"Error fetching real guild data: {e}")
+            log_debug("Falling back to mock data due to error")
         
+        # Fallback to mock data if real guild fetching fails
+        log_debug("Using fallback mock guild data")
         return {
             "success": True,
             "guilds": [
-                {"id": "example1", "name": "🎮 Gaming Server", "icon": None},
-                {"id": "example2", "name": "👥 Friends Chat", "icon": None},
-                {"id": "example3", "name": "💼 Work Discord", "icon": None},
-                {"id": "example4", "name": "🚀 Steam Deck Users", "icon": None}
+                {"id": "example1", "name": "🎮 Gaming Server (Mock)", "icon": None},
+                {"id": "example2", "name": "👥 Friends Chat (Mock)", "icon": None},
+                {"id": "example3", "name": "💼 Work Discord (Mock)", "icon": None},
+                {"id": "example4", "name": "🚀 Steam Deck Users (Mock)", "icon": None}
             ]
         }
     

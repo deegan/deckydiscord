@@ -39,7 +39,7 @@ class Plugin:
             
         try:
             if self.rpc is None:
-                self.rpc = DiscordRPC(client_id='1234567890123456789')
+                self.rpc = DiscordRPC(client_id='1511445489386787129')
             
             # Run the blocking connect call in a thread to avoid blocking the event loop
             loop = asyncio.get_event_loop()
