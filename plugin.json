@@ -1,0 +1,11 @@
+{
+  "name": "Discord RPC",
+  "author": "Steam Deck User",
+  "flags": ["debug"],
+  "api_version": 1,
+  "publish": {
+    "tags": ["discord", "rpc", "voice"],
+    "description": "Control Discord from Steam Deck without leaving Big Picture Mode.",
+    "image": "https://opengraph.githubassets.com/1/SteamDeckHomebrew/PluginLoader"
+  }
+}
