@@ -419,7 +419,10 @@ class Plugin:
 
     async def discover_discord_servers(self) -> Dict[str, any]:
         """Attempt to discover user's actual Discord servers for easy adding."""
+        decky.logger.info("discover_discord_servers called")
+        
         if not self.connected or not self.rpc:
+            decky.logger.warning("Discovery failed: not connected to Discord")
             return {"success": False, "error": "Not connected to Discord"}
         
         discovered_servers = []
@@ -431,6 +434,7 @@ class Plugin:
             # Method 1: Try GET_GUILDS (will likely fail but worth trying)
             def try_get_guilds():
                 try:
+                    decky.logger.info("Attempting GET_GUILDS request...")
                     guild_request = {
                         "cmd": "GET_GUILDS",
                         "args": {},
@@ -442,18 +446,24 @@ class Plugin:
                     
                     if op == 1:
                         response = json.loads(data.decode('utf-8'))
+                        decky.logger.info(f"GET_GUILDS response: {response}")
+                        
                         if response.get('cmd') == 'GET_GUILDS' and response.get('evt') == 'RESPONSE':
                             guilds = response.get('data', {}).get('guilds', [])
                             return [{"id": g.get('id'), "name": g.get('name'), "source": "api"} for g in guilds]
-                except:
-                    pass
+                        elif response.get('evt') == 'ERROR':
+                            decky.logger.warning(f"GET_GUILDS error: {response.get('data', {})}")
+                except Exception as e:
+                    decky.logger.warning(f"GET_GUILDS failed: {e}")
                 return []
             
             api_servers = await loop.run_in_executor(None, try_get_guilds)
+            decky.logger.info(f"API servers found: {len(api_servers)}")
             discovered_servers.extend(api_servers)
             
             # Method 2: Common Discord server names (fallback suggestions)
             if not discovered_servers:
+                decky.logger.info("No API servers found, using fallback suggestions")
                 common_servers = [
                     {"id": "common1", "name": "🎮 Gaming", "source": "suggestion"},
                     {"id": "common2", "name": "👥 Friends", "source": "suggestion"},
@@ -465,6 +475,8 @@ class Plugin:
                     {"id": "common8", "name": "🌍 Community", "source": "suggestion"}
                 ]
                 discovered_servers.extend(common_servers)
+            
+            decky.logger.info(f"Total discovered servers: {len(discovered_servers)}")
             
             return {
                 "success": True,
