@@ -180,7 +180,7 @@ class Plugin:
         """Check if there's a newer version available on GitHub."""
         try:
             # Get current version
-            current_version = "0.1.13"  # This should be updated automatically
+            current_version = "0.2.0"  # This should be updated automatically
             
             # GitHub API to get latest release
             api_url = "https://api.github.com/repos/deegan/deckydiscord/releases/latest"
@@ -196,7 +196,7 @@ class Plugin:
                 
                 req = urllib.request.Request(
                     api_url,
-                    headers={'User-Agent': 'Deckycord-Plugin/0.1.13'}
+                    headers={'User-Agent': 'Deckycord-Plugin/0.2.0'}
                 )
                 
                 with urllib.request.urlopen(req, context=ssl_context, timeout=10) as response:
@@ -261,7 +261,7 @@ class Plugin:
                     
                     req = urllib.request.Request(
                         download_url,
-                        headers={'User-Agent': 'Deckycord-Plugin/0.1.13'}
+                        headers={'User-Agent': 'Deckycord-Plugin/0.2.0'}
                     )
                     
                     with urllib.request.urlopen(req, context=ssl_context, timeout=30) as response:
@@ -611,6 +611,74 @@ class Plugin:
             return result
         except Exception as e:
             decky.logger.error(f"Error leaving voice channel: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def mute_voice(self) -> Dict[str, any]:
+        """Mute local microphone in Discord."""
+        if not self.connected or not self.rpc:
+            return {"success": False, "error": "Not connected to Discord"}
+        
+        try:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                self.rpc.set_voice_settings,
+                True,  # mute=True
+                None   # deaf=None (don't change)
+            )
+            
+            if result.get("success"):
+                decky.logger.info("Successfully muted microphone")
+            
+            return result
+        except Exception as e:
+            decky.logger.error(f"Error muting voice: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def unmute_voice(self) -> Dict[str, any]:
+        """Unmute local microphone in Discord."""
+        if not self.connected or not self.rpc:
+            return {"success": False, "error": "Not connected to Discord"}
+        
+        try:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                self.rpc.set_voice_settings,
+                False,  # mute=False
+                None    # deaf=None (don't change)
+            )
+            
+            if result.get("success"):
+                decky.logger.info("Successfully unmuted microphone")
+            
+            return result
+        except Exception as e:
+            decky.logger.error(f"Error unmuting voice: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def toggle_deafen(self) -> Dict[str, any]:
+        """Toggle deafen (mute speakers) in Discord."""
+        if not self.connected or not self.rpc:
+            return {"success": False, "error": "Not connected to Discord"}
+        
+        # For now, just implement a simple toggle - in a real implementation
+        # you'd track the current state
+        try:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                self.rpc.set_voice_settings,
+                None,  # mute=None (don't change)
+                True   # deaf=True (toggle - would need state tracking for proper toggle)
+            )
+            
+            if result.get("success"):
+                decky.logger.info("Toggled deafen status")
+            
+            return result
+        except Exception as e:
+            decky.logger.error(f"Error toggling deafen: {e}")
             return {"success": False, "error": str(e)}
 
     async def _main(self):

@@ -59,6 +59,9 @@ const joinVoiceChannel = callable<[string, string], any>("join_voice_channel");
 const leaveVoiceChannel = callable<[string], any>("leave_voice_channel");
 const discoverDiscordServers = callable<[], any>("discover_discord_servers");
 const getOAuthUrl = callable<[], any>("get_oauth_url");
+const muteVoice = callable<[], any>("mute_voice");
+const unmuteVoice = callable<[], any>("unmute_voice");
+const toggleDeafen = callable<[], any>("toggle_deafen");
 
 function Content() {
   const [status, setStatus] = useState<ConnectionStatus>({ connected: false, pypresence_available: false });
@@ -415,6 +418,54 @@ function Content() {
     }
   };
 
+  const handleMute = async () => {
+    try {
+      const result = await muteVoice();
+      toaster.toast({
+        title: result.success ? "Microphone Muted" : "Mute Failed",
+        body: result.message || result.error || "Unknown result"
+      });
+    } catch (error) {
+      console.error("Failed to mute:", error);
+      toaster.toast({
+        title: "Mute Error",
+        body: "Failed to mute microphone"
+      });
+    }
+  };
+
+  const handleUnmute = async () => {
+    try {
+      const result = await unmuteVoice();
+      toaster.toast({
+        title: result.success ? "Microphone Unmuted" : "Unmute Failed",
+        body: result.message || result.error || "Unknown result"
+      });
+    } catch (error) {
+      console.error("Failed to unmute:", error);
+      toaster.toast({
+        title: "Unmute Error",
+        body: "Failed to unmute microphone"
+      });
+    }
+  };
+
+  const handleToggleDeafen = async () => {
+    try {
+      const result = await toggleDeafen();
+      toaster.toast({
+        title: result.success ? "Audio Deafened" : "Deafen Failed",
+        body: result.message || result.error || "Unknown result"
+      });
+    } catch (error) {
+      console.error("Failed to toggle deafen:", error);
+      toaster.toast({
+        title: "Deafen Error",
+        body: "Failed to toggle audio deafen"
+      });
+    }
+  };
+
   const ServerRow = ({ server, isFavorite }: { server: Guild; isFavorite: boolean }) => {
     const isExpanded = expandedServer === server.id;
     const serverVoiceChannels = voiceChannels[server.id] || [];
@@ -578,6 +629,40 @@ function Content() {
           </ButtonItem>
         </PanelSectionRow>
       </PanelSection>
+
+      {status.connected && (
+        <PanelSection title="Voice Controls">
+          <PanelSectionRow>
+            <div style={{ display: "flex", gap: "8px" }}>
+              <ButtonItem
+                layout="below"
+                onClick={handleMute}
+                style={{ flex: 1, fontSize: "0.8em", padding: "8px", backgroundColor: "#ff4444" }}
+              >
+                🔇 Mute
+              </ButtonItem>
+              
+              <ButtonItem
+                layout="below"
+                onClick={handleUnmute}
+                style={{ flex: 1, fontSize: "0.8em", padding: "8px", backgroundColor: "#44ff44" }}
+              >
+                🎤 Unmute
+              </ButtonItem>
+            </div>
+          </PanelSectionRow>
+          
+          <PanelSectionRow>
+            <ButtonItem
+              layout="below"
+              onClick={handleToggleDeafen}
+              style={{ fontSize: "0.8em", padding: "8px", backgroundColor: "#4444ff" }}
+            >
+              🔕 Toggle Deafen
+            </ButtonItem>
+          </PanelSectionRow>
+        </PanelSection>
+      )}
 
       {status.connected && (
         <>

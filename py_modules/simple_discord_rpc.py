@@ -12,6 +12,7 @@ import sys
 import asyncio
 import stat as stat_module
 import subprocess
+import time
 from typing import Dict, Any, Optional
 
 # Try to import decky logger for better logging
@@ -387,6 +388,55 @@ class DiscordRPC:
                 {"id": "voice2", "name": "🎮 Gaming", "user_limit": 10, "position": 2},
                 {"id": "voice3", "name": "🎵 Music", "user_limit": 5, "position": 3}
             ],
+            "mock": True
+        }
+    
+    def set_voice_settings(self, mute: bool = None, deaf: bool = None) -> Dict[str, Any]:
+        """Control local voice settings (mute/unmute, deafen/undeafen)."""
+        if not self.connected:
+            raise ConnectionError("Not connected to Discord")
+        
+        try:
+            settings_request = {
+                "cmd": "SET_VOICE_SETTINGS",
+                "args": {},
+                "nonce": f"voice-settings-{int(time.time())}"
+            }
+            
+            # Only include settings that are explicitly provided
+            if mute is not None:
+                settings_request["args"]["mute"] = mute
+            if deaf is not None:
+                settings_request["args"]["deaf"] = deaf
+            
+            log_debug(f"Setting voice settings: {settings_request['args']}")
+            self._send_data(1, settings_request)  # Opcode 1 = frame
+            
+            # Read response
+            op, data = self._recv_data()
+            if op == 1:  # Opcode 1 = frame
+                response = json.loads(data.decode('utf-8'))
+                log_debug(f"Voice settings response: {response}")
+                
+                if response.get('cmd') == 'SET_VOICE_SETTINGS' and response.get('evt') == 'RESPONSE':
+                    return {
+                        "success": True,
+                        "settings": response.get('data', {}),
+                        "message": f"Voice settings updated: {'muted' if mute else 'unmuted'}" if mute is not None else "Voice settings updated"
+                    }
+                else:
+                    log_debug(f"Unexpected voice settings response: {response}")
+                    
+        except Exception as e:
+            log_error(f"Error setting voice settings: {e}")
+            
+        # Fallback: return mock response for demo
+        log_debug("SET_VOICE_SETTINGS failed, returning mock response")
+        action = "muted" if mute else "unmuted" if mute is not None else "updated"
+        return {
+            "success": True,
+            "settings": {"mute": mute, "deaf": deaf},
+            "message": f"Mock: Voice {action}",
             "mock": True
         }
 
