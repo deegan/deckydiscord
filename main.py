@@ -529,9 +529,8 @@ class Plugin:
             redirect_uri = "http://localhost"
             
             oauth_url = (
-                f"https://discord.com/api/oauth2/authorize?"
+                f"https://discord.com/oauth2/authorize?"
                 f"client_id={client_id}&"
-                f"permissions=0&"
                 f"redirect_uri={redirect_uri}&"
                 f"response_type=code&"
                 f"scope={scopes}"
