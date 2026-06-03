@@ -62,6 +62,7 @@ const getOAuthUrl = callable<[], any>("get_oauth_url");
 const muteVoice = callable<[], any>("mute_voice");
 const unmuteVoice = callable<[], any>("unmute_voice");
 const toggleDeafen = callable<[], any>("toggle_deafen");
+const testRpcCommands = callable<[], any>("test_rpc_commands");
 
 function Content() {
   const [status, setStatus] = useState<ConnectionStatus>({ connected: false, pypresence_available: false });
@@ -626,6 +627,29 @@ function Content() {
             disabled={!status.pypresence_available}
           >
             Debug Discord Connection
+          </ButtonItem>
+        </PanelSectionRow>
+        
+        <PanelSectionRow>
+          <ButtonItem
+            layout="below"
+            onClick={async () => {
+              try {
+                const result = await testRpcCommands();
+                toaster.toast({
+                  title: "RPC Test Complete",
+                  body: result.summary || "Check logs for results"
+                });
+              } catch (error) {
+                toaster.toast({
+                  title: "RPC Test Failed",
+                  body: "Failed to test RPC commands"
+                });
+              }
+            }}
+            disabled={!status.connected}
+          >
+            Test RPC Commands
           </ButtonItem>
         </PanelSectionRow>
       </PanelSection>

@@ -681,6 +681,73 @@ class Plugin:
             decky.logger.error(f"Error toggling deafen: {e}")
             return {"success": False, "error": str(e)}
 
+    async def test_rpc_commands(self) -> Dict[str, any]:
+        """Test various RPC commands to see what works without full OAuth."""
+        if not self.connected or not self.rpc:
+            return {"success": False, "error": "Not connected to Discord"}
+        
+        test_results = {}
+        
+        try:
+            loop = asyncio.get_event_loop()
+            
+            def test_commands():
+                results = {}
+                
+                # Test 1: Get current user (basic info)
+                try:
+                    user_request = {"cmd": "GET_CURRENT_USER", "args": {}, "nonce": "test-user"}
+                    self.rpc._send_data(1, user_request)
+                    op, data = self.rpc._recv_data()
+                    if op == 1:
+                        response = json.loads(data.decode('utf-8'))
+                        results["GET_CURRENT_USER"] = response
+                except Exception as e:
+                    results["GET_CURRENT_USER"] = {"error": str(e)}
+                
+                # Test 2: Try to get voice settings (might work even without OAuth)
+                try:
+                    voice_request = {"cmd": "GET_VOICE_SETTINGS", "args": {}, "nonce": "test-voice"}
+                    self.rpc._send_data(1, voice_request)
+                    op, data = self.rpc._recv_data()
+                    if op == 1:
+                        response = json.loads(data.decode('utf-8'))
+                        results["GET_VOICE_SETTINGS"] = response
+                except Exception as e:
+                    results["GET_VOICE_SETTINGS"] = {"error": str(e)}
+                
+                # Test 3: Try SELECT_VOICE_CHANNEL with a known format
+                try:
+                    # This would normally require a real channel ID, but let's see the error response
+                    select_request = {
+                        "cmd": "SELECT_VOICE_CHANNEL", 
+                        "args": {"channel_id": None, "force": False}, 
+                        "nonce": "test-select"
+                    }
+                    self.rpc._send_data(1, select_request)
+                    op, data = self.rpc._recv_data()
+                    if op == 1:
+                        response = json.loads(data.decode('utf-8'))
+                        results["SELECT_VOICE_CHANNEL"] = response
+                except Exception as e:
+                    results["SELECT_VOICE_CHANNEL"] = {"error": str(e)}
+                
+                return results
+            
+            test_results = await loop.run_in_executor(None, test_commands)
+            
+            decky.logger.info(f"RPC Command Test Results: {test_results}")
+            
+            return {
+                "success": True,
+                "test_results": test_results,
+                "summary": "Check logs for detailed results"
+            }
+            
+        except Exception as e:
+            decky.logger.error(f"Error testing RPC commands: {e}")
+            return {"success": False, "error": str(e)}
+
     async def _main(self):
         self.loop = asyncio.get_event_loop()
         decky.logger.info("Discord RPC Plugin loaded")
