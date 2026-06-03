@@ -156,7 +156,7 @@ class Plugin:
         """Check if there's a newer version available on GitHub."""
         try:
             # Get current version
-            current_version = "0.1.9"  # This should be updated automatically
+            current_version = "0.1.10"  # This should be updated automatically
             
             # GitHub API to get latest release
             api_url = "https://api.github.com/repos/deegan/deckydiscord/releases/latest"
@@ -172,7 +172,7 @@ class Plugin:
                 
                 req = urllib.request.Request(
                     api_url,
-                    headers={'User-Agent': 'Deckycord-Plugin/0.1.9'}
+                    headers={'User-Agent': 'Deckycord-Plugin/0.1.10'}
                 )
                 
                 with urllib.request.urlopen(req, context=ssl_context, timeout=10) as response:
@@ -237,7 +237,7 @@ class Plugin:
                     
                     req = urllib.request.Request(
                         download_url,
-                        headers={'User-Agent': 'Deckycord-Plugin/0.1.9'}
+                        headers={'User-Agent': 'Deckycord-Plugin/0.1.10'}
                     )
                     
                     with urllib.request.urlopen(req, context=ssl_context, timeout=30) as response:

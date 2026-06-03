@@ -385,56 +385,53 @@ function Content() {
       <div>
         <PanelSectionRow>
           <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "4px" }}>
-            <Focusable 
-              style={{ display: "flex", alignItems: "center", gap: "8px", padding: "4px", cursor: "pointer", flex: 1 }}
+            <ButtonItem
+              layout="below"
               onClick={() => handleServerClick(server.id)}
+              style={{ flex: 1, display: "flex", alignItems: "center", gap: "8px" }}
             >
-              <FaServer style={{ color: isFavorite ? "#5865F2" : "#7289DA" }} />
-              <span style={{ flex: 1 }}>{server.name}</span>
-              <span style={{ fontSize: "0.8em", color: "#888" }}>
-                {isExpanded ? "▲" : "▼"}
-              </span>
-            </Focusable>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", width: "100%" }}>
+                <FaServer style={{ color: isFavorite ? "#5865F2" : "#7289DA" }} />
+                <span style={{ flex: 1 }}>{server.name}</span>
+                <span style={{ fontSize: "0.8em", color: "#888" }}>
+                  {isExpanded ? "▲" : "▼"}
+                </span>
+              </div>
+            </ButtonItem>
             
             {!server.configurable && (
               <div style={{ display: "flex", gap: "4px" }}>
-                <button
+                <ButtonItem
+                  layout="below"
                   onClick={(e) => {
                     e.stopPropagation();
                     toggleServerFavorite(server.id);
                   }}
                   style={{
-                    background: "none",
-                    border: "1px solid #444",
-                    color: isFavorite ? "#FFD700" : "#888",
-                    padding: "2px 6px",
-                    borderRadius: "3px",
                     fontSize: "0.8em",
-                    cursor: "pointer"
+                    padding: "4px 8px",
+                    minWidth: "32px",
+                    color: isFavorite ? "#FFD700" : "#888"
                   }}
-                  title={isFavorite ? "Remove from favorites" : "Add to favorites"}
                 >
                   {isFavorite ? "★" : "☆"}
-                </button>
+                </ButtonItem>
                 
-                <button
+                <ButtonItem
+                  layout="below"
                   onClick={(e) => {
                     e.stopPropagation();
                     removeServerById(server.id);
                   }}
                   style={{
-                    background: "none",
-                    border: "1px solid #444",
-                    color: "#ff6b6b",
-                    padding: "2px 6px",
-                    borderRadius: "3px",
                     fontSize: "0.8em",
-                    cursor: "pointer"
+                    padding: "4px 8px",
+                    minWidth: "32px",
+                    color: "#ff6b6b"
                   }}
-                  title="Remove server"
                 >
                   ✕
-                </button>
+                </ButtonItem>
               </div>
             )}
           </div>
