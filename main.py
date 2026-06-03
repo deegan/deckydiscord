@@ -18,6 +18,13 @@ py_modules_path = os.path.join(plugin_dir, "py_modules")
 if py_modules_path not in sys.path:
     sys.path.insert(0, py_modules_path)
 
+# Debug the module loading
+decky.logger.info(f"Plugin directory: {plugin_dir}")
+decky.logger.info(f"py_modules path: {py_modules_path}")
+decky.logger.info(f"py_modules exists: {os.path.exists(py_modules_path)}")
+decky.logger.info(f"simple_discord_rpc.py exists: {os.path.exists(os.path.join(py_modules_path, 'simple_discord_rpc.py'))}")
+decky.logger.info(f"sys.path includes py_modules: {py_modules_path in sys.path}")
+
 try:
     from simple_discord_rpc import DiscordRPC
     DISCORD_RPC_AVAILABLE = True
@@ -25,6 +32,7 @@ try:
 except ImportError as e:
     DISCORD_RPC_AVAILABLE = False
     decky.logger.warning(f"Discord RPC not available: {e}")
+    decky.logger.error(f"Current sys.path: {sys.path[:5]}...")  # Show first 5 path entries
 
 class Plugin:
     def __init__(self):
@@ -148,7 +156,7 @@ class Plugin:
         """Check if there's a newer version available on GitHub."""
         try:
             # Get current version
-            current_version = "0.1.7"  # This should be updated automatically
+            current_version = "0.1.8"  # This should be updated automatically
             
             # GitHub API to get latest release
             api_url = "https://api.github.com/repos/deegan/deckydiscord/releases/latest"
@@ -164,7 +172,7 @@ class Plugin:
                 
                 req = urllib.request.Request(
                     api_url,
-                    headers={'User-Agent': 'Deckycord-Plugin/0.1.4'}
+                    headers={'User-Agent': 'Deckycord-Plugin/0.1.8'}
                 )
                 
                 with urllib.request.urlopen(req, context=ssl_context, timeout=10) as response:
@@ -229,7 +237,7 @@ class Plugin:
                     
                     req = urllib.request.Request(
                         download_url,
-                        headers={'User-Agent': 'Deckycord-Plugin/0.1.4'}
+                        headers={'User-Agent': 'Deckycord-Plugin/0.1.8'}
                     )
                     
                     with urllib.request.urlopen(req, context=ssl_context, timeout=30) as response:
@@ -254,9 +262,14 @@ class Plugin:
                     # Copy files to current plugin directory
                     plugin_target = os.path.dirname(os.path.abspath(__file__))
                     
-                    # Create backup directory
+                    # Create backup directory with better error handling
                     backup_dir = os.path.join(plugin_target, "backup_" + str(int(time.time())))
-                    os.makedirs(backup_dir)
+                    try:
+                        os.makedirs(backup_dir)
+                    except PermissionError:
+                        # Try creating backup in temp directory instead
+                        backup_dir = os.path.join(tempfile.gettempdir(), "deckycord_backup_" + str(int(time.time())))
+                        os.makedirs(backup_dir)
                     
                     # First, backup critical files
                     critical_files = ["main.py", "plugin.json", "package.json"]
