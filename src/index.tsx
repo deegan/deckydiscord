@@ -219,15 +219,20 @@ function Content() {
   };
 
   const handleServerClick = async (serverId: string) => {
+    console.log("Frontend: Expanding server for voice channels:", serverId);
+    
     if (expandedServer === serverId) {
       // Collapse if already expanded
+      console.log("Frontend: Collapsing server");
       setExpandedServer(null);
     } else {
       // Expand and load voice channels
+      console.log("Frontend: Loading voice channels...");
       setExpandedServer(serverId);
       if (!voiceChannels[serverId]) {
         try {
           const result = await getVoiceChannels(serverId);
+          console.log("Frontend: Voice channels result:", result);
           if (result.success) {
             setVoiceChannels(prev => ({
               ...prev,
@@ -327,14 +332,19 @@ function Content() {
   const handleDiscoverServers = async () => {
     try {
       setLoading(true);
+      console.log("Frontend: Starting server discovery...");
+      
       const result = await discoverDiscordServers();
+      console.log("Frontend: Discovery result:", result);
       
       if (result.success) {
         setDiscoveredServers(result.servers || []);
         setShowDiscovery(true);
+        console.log("Frontend: Set discovered servers:", result.servers);
+        
         toaster.toast({
           title: "Server Discovery Complete",
-          body: `Found ${(result.servers || []).length} servers`
+          body: `Found ${(result.servers || []).length} suggestions to add`
         });
       } else {
         toaster.toast({
