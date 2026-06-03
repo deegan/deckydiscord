@@ -187,11 +187,11 @@ class DiscordRPC:
             self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             self.socket.connect(self.pipe_path)
             
-            # Send handshake with proper scopes for guild access
+            # Send handshake with comprehensive scopes for full RPC access
             handshake = {
                 "v": 1,
                 "client_id": self.client_id,
-                "scopes": ["rpc", "guilds", "guilds.members.read", "guilds.channels.read"]
+                "scopes": ["rpc", "guilds", "guilds.members.read", "guilds.channels.read", "rpc.voice.write", "rpc.voice.read", "voice", "presences.read"]
             }
             
             self._send_data(0, handshake)  # Opcode 0 = handshake

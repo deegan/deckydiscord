@@ -180,7 +180,7 @@ class Plugin:
         """Check if there's a newer version available on GitHub."""
         try:
             # Get current version
-            current_version = "0.2.1"  # This should be updated automatically
+            current_version = "0.2.2"  # This should be updated automatically
             
             # GitHub API to get latest release
             api_url = "https://api.github.com/repos/deegan/deckydiscord/releases/latest"
@@ -196,7 +196,7 @@ class Plugin:
                 
                 req = urllib.request.Request(
                     api_url,
-                    headers={'User-Agent': 'Deckycord-Plugin/0.2.1'}
+                    headers={'User-Agent': 'Deckycord-Plugin/0.2.2'}
                 )
                 
                 with urllib.request.urlopen(req, context=ssl_context, timeout=10) as response:
@@ -261,7 +261,7 @@ class Plugin:
                     
                     req = urllib.request.Request(
                         download_url,
-                        headers={'User-Agent': 'Deckycord-Plugin/0.2.1'}
+                        headers={'User-Agent': 'Deckycord-Plugin/0.2.2'}
                     )
                     
                     with urllib.request.urlopen(req, context=ssl_context, timeout=30) as response:
@@ -525,14 +525,14 @@ class Plugin:
         """Generate OAuth authorization URL for the user."""
         try:
             client_id = "1511445489386787129"
-            scopes = "rpc+guilds+guilds.members.read+guilds.channels.read"
-            redirect_uri = "http://localhost"
+            scopes = "guilds.members.read+guilds.channels.read+guilds+rpc+rpc.voice.write+rpc.voice.read+voice+presences.read"
+            redirect_uri = "https://discord.com/oauth2/authorize?client_id=1511445489386787129"
             
             oauth_url = (
                 f"https://discord.com/oauth2/authorize?"
                 f"client_id={client_id}&"
-                f"redirect_uri={redirect_uri}&"
                 f"response_type=code&"
+                f"redirect_uri={redirect_uri}&"
                 f"scope={scopes}"
             )
             
