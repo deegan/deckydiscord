@@ -206,13 +206,25 @@ class DiscordRPC:
                 # Check for READY event or successful handshake
                 if response.get('evt') == 'READY':
                     self.connected = True
+                    user_data = response.get('data', {}).get('user', {})
                     log_debug("Successfully connected - handshake complete with READY event")
-                    log_debug(f"Discord user: {response.get('data', {}).get('user', {}).get('username', 'unknown')}")
+                    log_debug(f"Discord user: {user_data.get('username', 'unknown')}")
+                    log_debug(f"User ID: {user_data.get('id', 'unknown')}")
+                    
+                    # Check what scopes were granted
+                    scopes = response.get('data', {}).get('scopes', [])
+                    log_debug(f"Granted scopes: {scopes}")
                     return True
                 elif response.get('cmd') == 'DISPATCH':
                     self.connected = True
                     log_debug("Successfully connected - handshake complete with DISPATCH")
                     return True
+                elif response.get('evt') == 'ERROR':
+                    error_data = response.get('data', {})
+                    log_error(f"RPC handshake error: {error_data}")
+                    if error_data.get('code') == 4006:
+                        log_error("OAuth scopes not granted - user needs to authorize the application")
+                    return False
                 else:
                     log_debug(f"Unexpected handshake response - evt: {response.get('evt')}, cmd: {response.get('cmd')}")
             elif op == 2:  # Opcode 2 = close

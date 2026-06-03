@@ -156,7 +156,7 @@ class Plugin:
         """Check if there's a newer version available on GitHub."""
         try:
             # Get current version
-            current_version = "0.1.10"  # This should be updated automatically
+            current_version = "0.1.11"  # This should be updated automatically
             
             # GitHub API to get latest release
             api_url = "https://api.github.com/repos/deegan/deckydiscord/releases/latest"
@@ -172,7 +172,7 @@ class Plugin:
                 
                 req = urllib.request.Request(
                     api_url,
-                    headers={'User-Agent': 'Deckycord-Plugin/0.1.10'}
+                    headers={'User-Agent': 'Deckycord-Plugin/0.1.11'}
                 )
                 
                 with urllib.request.urlopen(req, context=ssl_context, timeout=10) as response:
@@ -237,7 +237,7 @@ class Plugin:
                     
                     req = urllib.request.Request(
                         download_url,
-                        headers={'User-Agent': 'Deckycord-Plugin/0.1.10'}
+                        headers={'User-Agent': 'Deckycord-Plugin/0.1.11'}
                     )
                     
                     with urllib.request.urlopen(req, context=ssl_context, timeout=30) as response:
@@ -450,9 +450,13 @@ class Plugin:
                         
                         if response.get('cmd') == 'GET_GUILDS' and response.get('evt') == 'RESPONSE':
                             guilds = response.get('data', {}).get('guilds', [])
+                            decky.logger.info(f"Successfully retrieved {len(guilds)} real Discord servers!")
                             return [{"id": g.get('id'), "name": g.get('name'), "source": "api"} for g in guilds]
                         elif response.get('evt') == 'ERROR':
-                            decky.logger.warning(f"GET_GUILDS error: {response.get('data', {})}")
+                            error_data = response.get('data', {})
+                            decky.logger.warning(f"GET_GUILDS error: {error_data}")
+                            if error_data.get('code') == 4006:
+                                decky.logger.info("OAuth scopes need to be authorized - using fallback suggestions")
                 except Exception as e:
                     decky.logger.warning(f"GET_GUILDS failed: {e}")
                 return []
