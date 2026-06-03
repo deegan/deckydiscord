@@ -9,6 +9,7 @@ import ssl
 import shutil
 import tempfile
 import zipfile
+import time
 from typing import Dict, List, Optional
 
 # Add py_modules to path for bundled dependencies
@@ -147,7 +148,7 @@ class Plugin:
         """Check if there's a newer version available on GitHub."""
         try:
             # Get current version
-            current_version = "0.1.6"  # This should be updated automatically
+            current_version = "0.1.7"  # This should be updated automatically
             
             # GitHub API to get latest release
             api_url = "https://api.github.com/repos/deegan/deckydiscord/releases/latest"
@@ -182,7 +183,8 @@ class Plugin:
                 "current_version": current_version,
                 "latest_version": latest_version,
                 "update_available": is_newer,
-                "download_url": latest_release.get('assets', [{}])[0].get('browser_download_url') if latest_release.get('assets') else None
+                "download_url": latest_release.get('assets', [{}])[0].get('browser_download_url') if latest_release.get('assets') else None,
+                "release_url": f"https://github.com/deegan/deckydiscord/releases/tag/{latest_version}"
             }
             
         except Exception as e:
@@ -251,16 +253,48 @@ class Plugin:
                     
                     # Copy files to current plugin directory
                     plugin_target = os.path.dirname(os.path.abspath(__file__))
+                    
+                    # Create backup directory
+                    backup_dir = os.path.join(plugin_target, "backup_" + str(int(time.time())))
+                    os.makedirs(backup_dir)
+                    
+                    # First, backup critical files
+                    critical_files = ["main.py", "plugin.json", "package.json"]
+                    for file_name in critical_files:
+                        src_path = os.path.join(plugin_target, file_name)
+                        if os.path.exists(src_path):
+                            shutil.copy2(src_path, os.path.join(backup_dir, file_name))
+                    
+                    # Copy new files, handling permission errors gracefully
+                    update_errors = []
                     for item in os.listdir(plugin_source):
                         source_path = os.path.join(plugin_source, item)
                         target_path = os.path.join(plugin_target, item)
                         
-                        if os.path.isdir(source_path):
-                            if os.path.exists(target_path):
-                                shutil.rmtree(target_path)
-                            shutil.copytree(source_path, target_path)
-                        else:
-                            shutil.copy2(source_path, target_path)
+                        try:
+                            if os.path.isdir(source_path):
+                                if os.path.exists(target_path):
+                                    # Try to remove, but don't fail if we can't
+                                    try:
+                                        shutil.rmtree(target_path)
+                                    except PermissionError:
+                                        # Directory in use, try renaming it
+                                        backup_path = target_path + "_old"
+                                        if os.path.exists(backup_path):
+                                            shutil.rmtree(backup_path)
+                                        os.rename(target_path, backup_path)
+                                shutil.copytree(source_path, target_path)
+                            else:
+                                shutil.copy2(source_path, target_path)
+                        except Exception as copy_error:
+                            update_errors.append(f"{item}: {str(copy_error)}")
+                    
+                    # Clean up backup if update was successful
+                    if not update_errors:
+                        shutil.rmtree(backup_dir)
+                    
+                    if update_errors:
+                        raise Exception(f"Update partial - some files failed: {'; '.join(update_errors)}")
                     
                     return True
             
@@ -269,7 +303,8 @@ class Plugin:
             decky.logger.info("Plugin updated successfully")
             return {
                 "success": True,
-                "message": f"Updated to {update_check.get('latest_version')}. Please reload the plugin."
+                "message": f"Updated to {update_check.get('latest_version')}. Please restart Decky Loader or reload the plugin to complete the update.",
+                "restart_required": True
             }
             
         except Exception as e:
@@ -368,6 +403,70 @@ class Plugin:
             "servers": regular,
             "total_count": len(self.servers)
         }
+
+    async def discover_discord_servers(self) -> Dict[str, any]:
+        """Attempt to discover user's actual Discord servers for easy adding."""
+        if not self.connected or not self.rpc:
+            return {"success": False, "error": "Not connected to Discord"}
+        
+        discovered_servers = []
+        
+        # Try multiple approaches to get server info
+        try:
+            loop = asyncio.get_event_loop()
+            
+            # Method 1: Try GET_GUILDS (will likely fail but worth trying)
+            def try_get_guilds():
+                try:
+                    guild_request = {
+                        "cmd": "GET_GUILDS",
+                        "args": {},
+                        "nonce": "discover-guilds"
+                    }
+                    
+                    self.rpc._send_data(1, guild_request)
+                    op, data = self.rpc._recv_data()
+                    
+                    if op == 1:
+                        response = json.loads(data.decode('utf-8'))
+                        if response.get('cmd') == 'GET_GUILDS' and response.get('evt') == 'RESPONSE':
+                            guilds = response.get('data', {}).get('guilds', [])
+                            return [{"id": g.get('id'), "name": g.get('name'), "source": "api"} for g in guilds]
+                except:
+                    pass
+                return []
+            
+            api_servers = await loop.run_in_executor(None, try_get_guilds)
+            discovered_servers.extend(api_servers)
+            
+            # Method 2: Common Discord server names (fallback suggestions)
+            if not discovered_servers:
+                common_servers = [
+                    {"id": "common1", "name": "🎮 Gaming", "source": "suggestion"},
+                    {"id": "common2", "name": "👥 Friends", "source": "suggestion"},
+                    {"id": "common3", "name": "💼 Work/School", "source": "suggestion"},
+                    {"id": "common4", "name": "🎵 Music", "source": "suggestion"},
+                    {"id": "common5", "name": "🎨 Art/Creative", "source": "suggestion"},
+                    {"id": "common6", "name": "📚 Study Group", "source": "suggestion"},
+                    {"id": "common7", "name": "🏆 Competitive", "source": "suggestion"},
+                    {"id": "common8", "name": "🌍 Community", "source": "suggestion"}
+                ]
+                discovered_servers.extend(common_servers)
+            
+            return {
+                "success": True,
+                "servers": discovered_servers,
+                "source_info": "Real Discord servers" if api_servers else "Common server suggestions",
+                "can_add_custom": True
+            }
+            
+        except Exception as e:
+            decky.logger.error(f"Error discovering servers: {e}")
+            return {
+                "success": False, 
+                "error": str(e),
+                "servers": []
+            }
 
     async def get_voice_channels(self, guild_id: str) -> Dict[str, any]:
         """Get voice channels for a specific server/guild."""

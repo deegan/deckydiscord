@@ -57,6 +57,7 @@ const toggleFavorite = callable<[string], any>("toggle_favorite");
 const getVoiceChannels = callable<[string], any>("get_voice_channels");
 const joinVoiceChannel = callable<[string, string], any>("join_voice_channel");
 const leaveVoiceChannel = callable<[string], any>("leave_voice_channel");
+const discoverDiscordServers = callable<[], any>("discover_discord_servers");
 
 function Content() {
   const [status, setStatus] = useState<ConnectionStatus>({ connected: false, pypresence_available: false });
@@ -69,6 +70,8 @@ function Content() {
   const [newServerName, setNewServerName] = useState("");
   const [expandedServer, setExpandedServer] = useState<string | null>(null);
   const [voiceChannels, setVoiceChannels] = useState<{[serverId: string]: VoiceChannel[]}>({});
+  const [discoveredServers, setDiscoveredServers] = useState<any[]>([]);
+  const [showDiscovery, setShowDiscovery] = useState(false);
 
   useEffect(() => {
     loadStatus();
@@ -185,16 +188,31 @@ function Content() {
     try {
       setLoading(true);
       const result = await updatePlugin();
-      toaster.toast({
-        title: result.success ? "Update Successful" : "Update Failed",
-        body: result.message
-      });
+      
       if (result.success) {
-        // Refresh update info
+        toaster.toast({
+          title: "Update Successful!",
+          body: result.message || "Update completed successfully"
+        });
         await checkUpdates();
+      } else {
+        // Show manual download option
+        toaster.toast({
+          title: "Auto-Update Failed",
+          body: "Please download manually from GitHub releases"
+        });
+        
+        if (updateInfo?.release_url) {
+          // Could open browser to release page if supported
+          console.log("Manual download:", updateInfo.release_url);
+        }
       }
     } catch (error) {
       console.error("Update error:", error);
+      toaster.toast({
+        title: "Update Error", 
+        body: "Auto-update failed. Please download manually from GitHub."
+      });
     } finally {
       setLoading(false);
     }
@@ -303,6 +321,59 @@ function Content() {
       }
     } catch (error) {
       console.error("Failed to remove server:", error);
+    }
+  };
+
+  const handleDiscoverServers = async () => {
+    try {
+      setLoading(true);
+      const result = await discoverDiscordServers();
+      
+      if (result.success) {
+        setDiscoveredServers(result.servers || []);
+        setShowDiscovery(true);
+        toaster.toast({
+          title: "Server Discovery Complete",
+          body: `Found ${(result.servers || []).length} servers`
+        });
+      } else {
+        toaster.toast({
+          title: "Discovery Failed",
+          body: result.error || "Could not discover servers"
+        });
+      }
+    } catch (error) {
+      console.error("Failed to discover servers:", error);
+      toaster.toast({
+        title: "Discovery Error",
+        body: "Failed to contact Discord API"
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddDiscoveredServer = async (server: any) => {
+    try {
+      const result = await addServer(server.name);
+      if (result.success) {
+        toaster.toast({
+          title: "Server Added",
+          body: `Added "${server.name}" to your servers`
+        });
+        await loadGuilds(); // Refresh server list
+      } else {
+        toaster.toast({
+          title: "Failed to Add Server", 
+          body: result.error || "Unknown error"
+        });
+      }
+    } catch (error) {
+      console.error("Failed to add discovered server:", error);
+      toaster.toast({
+        title: "Add Server Error",
+        body: "Failed to add server"
+      });
     }
   };
 
@@ -521,70 +592,65 @@ function Content() {
           )}
           
           <PanelSection title="Add Discord Servers">
-            {!showAddServer ? (
+            {!showDiscovery ? (
               <PanelSectionRow>
                 <ButtonItem
                   layout="below"
-                  onClick={() => setShowAddServer(true)}
+                  onClick={handleDiscoverServers}
+                  disabled={loading}
                 >
-                  ➕ Add Your Discord Server
+                  🔍 Discover Your Discord Servers
                 </ButtonItem>
               </PanelSectionRow>
             ) : (
               <>
                 <PanelSectionRow>
-                  <Field label="Server Name">
-                    <input
-                      type="text"
-                      value={newServerName}
-                      onChange={(e) => setNewServerName(e.target.value)}
-                      placeholder="e.g., My Gaming Server"
-                      style={{
-                        width: "100%",
-                        padding: "8px",
-                        fontSize: "14px",
-                        backgroundColor: "#1e1e1e",
-                        color: "#fff",
-                        border: "1px solid #444",
-                        borderRadius: "4px"
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          handleAddServer();
-                        } else if (e.key === "Escape") {
-                          setShowAddServer(false);
-                          setNewServerName("");
-                        }
-                      }}
-                      autoFocus
-                    />
-                  </Field>
+                  <div style={{ fontSize: "0.9em", color: "#ccc", marginBottom: "8px" }}>
+                    {discoveredServers.length > 0 ? "Select servers to add:" : "No servers found"}
+                  </div>
                 </PanelSectionRow>
                 
+                {discoveredServers.map((server, index) => (
+                  <PanelSectionRow key={server.id || index}>
+                    <div style={{ 
+                      display: "flex", 
+                      alignItems: "center", 
+                      gap: "8px", 
+                      padding: "8px",
+                      backgroundColor: "#2a2a2a",
+                      borderRadius: "4px",
+                      margin: "2px 0"
+                    }}>
+                      <span style={{ flex: 1, fontSize: "0.9em" }}>{server.name}</span>
+                      <span style={{ fontSize: "0.7em", color: "#888" }}>
+                        {server.source === "api" ? "📡" : "💡"}
+                      </span>
+                      <ButtonItem
+                        layout="below"
+                        onClick={() => handleAddDiscoveredServer(server)}
+                        style={{ fontSize: "0.8em", padding: "4px 8px" }}
+                      >
+                        Add
+                      </ButtonItem>
+                    </div>
+                  </PanelSectionRow>
+                ))}
+                
                 <PanelSectionRow>
-                  <div style={{ display: "flex", gap: "8px" }}>
-                    <ButtonItem
-                      layout="below"
-                      onClick={handleAddServer}
-                      disabled={!newServerName.trim()}
-                    >
-                      Add Server
-                    </ButtonItem>
-                    <ButtonItem
-                      layout="below"
-                      onClick={() => {
-                        setShowAddServer(false);
-                        setNewServerName("");
-                      }}
-                    >
-                      Cancel
-                    </ButtonItem>
-                  </div>
+                  <ButtonItem
+                    layout="below"
+                    onClick={() => {
+                      setShowDiscovery(false);
+                      setDiscoveredServers([]);
+                    }}
+                  >
+                    Close Discovery
+                  </ButtonItem>
                 </PanelSectionRow>
                 
                 <PanelSectionRow>
                   <div style={{ fontSize: "0.8em", color: "#888", fontStyle: "italic" }}>
-                    💡 Add the names of your Discord servers. You can join their voice channels even though we can't fetch them automatically due to Discord's API restrictions.
+                    📡 = Real Discord servers, 💡 = Common suggestions
                   </div>
                 </PanelSectionRow>
               </>
