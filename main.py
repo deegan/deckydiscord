@@ -33,6 +33,9 @@ except ImportError as e:
     DISCORD_RPC_AVAILABLE = False
     decky.logger.warning(f"Discord RPC not available: {e}")
     decky.logger.error(f"Current sys.path: {sys.path[:5]}...")  # Show first 5 path entries
+    decky.logger.error("CRITICAL: simple_discord_rpc.py is missing from py_modules directory!")
+    decky.logger.error("This indicates an incomplete plugin installation or auto-update failure.")
+    decky.logger.error("Please download the latest release manually from GitHub and reinstall.")
 
 class Plugin:
     def __init__(self):
@@ -43,11 +46,19 @@ class Plugin:
         self.servers = self._load_servers()
         
     async def get_connection_status(self) -> Dict[str, any]:
-        return {
+        status = {
             "connected": self.connected,
             "error": self.connection_error,
             "pypresence_available": DISCORD_RPC_AVAILABLE
         }
+        
+        # Add helpful error message if Discord RPC is not available due to missing files
+        if not DISCORD_RPC_AVAILABLE:
+            simple_rpc_path = os.path.join(os.path.dirname(__file__), "py_modules", "simple_discord_rpc.py")
+            if not os.path.exists(simple_rpc_path):
+                status["error"] = "Plugin installation corrupted - missing Discord RPC module. Please download latest release from GitHub and reinstall manually."
+        
+        return status
     
     async def connect_to_discord(self) -> Dict[str, any]:
         if not DISCORD_RPC_AVAILABLE:
@@ -156,7 +167,7 @@ class Plugin:
         """Check if there's a newer version available on GitHub."""
         try:
             # Get current version
-            current_version = "0.1.11"  # This should be updated automatically
+            current_version = "0.1.12"  # This should be updated automatically
             
             # GitHub API to get latest release
             api_url = "https://api.github.com/repos/deegan/deckydiscord/releases/latest"
@@ -172,7 +183,7 @@ class Plugin:
                 
                 req = urllib.request.Request(
                     api_url,
-                    headers={'User-Agent': 'Deckycord-Plugin/0.1.11'}
+                    headers={'User-Agent': 'Deckycord-Plugin/0.1.12'}
                 )
                 
                 with urllib.request.urlopen(req, context=ssl_context, timeout=10) as response:
@@ -237,7 +248,7 @@ class Plugin:
                     
                     req = urllib.request.Request(
                         download_url,
-                        headers={'User-Agent': 'Deckycord-Plugin/0.1.11'}
+                        headers={'User-Agent': 'Deckycord-Plugin/0.1.12'}
                     )
                     
                     with urllib.request.urlopen(req, context=ssl_context, timeout=30) as response:
