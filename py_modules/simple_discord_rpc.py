@@ -190,7 +190,7 @@ class DiscordRPC:
             handshake = {
                 "v": 1,
                 "client_id": self.client_id,
-                "scopes": ["rpc", "guilds", "guilds.members.read"]
+                "scopes": ["rpc", "guilds", "guilds.members.read", "guilds.channels.read"]
             }
             
             self._send_data(0, handshake)  # Opcode 0 = handshake
