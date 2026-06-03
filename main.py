@@ -42,7 +42,20 @@ class Plugin:
         self.rpc = None
         self.connected = False
         self.connection_error = None
-        self.config_file = os.path.join(os.path.dirname(__file__), "server_config.json")
+        # Use a writable location for config file
+        plugin_dir = os.path.dirname(__file__)
+        try:
+            # Try plugin directory first
+            test_file = os.path.join(plugin_dir, "test_write.tmp")
+            with open(test_file, 'w') as f:
+                f.write("test")
+            os.remove(test_file)
+            self.config_file = os.path.join(plugin_dir, "server_config.json")
+        except (PermissionError, OSError):
+            # Fall back to user home directory if plugin dir isn't writable
+            home_dir = os.path.expanduser("~")
+            self.config_file = os.path.join(home_dir, ".deckycord_servers.json")
+            decky.logger.info(f"Using fallback config location: {self.config_file}")
         self.servers = self._load_servers()
         
     async def get_connection_status(self) -> Dict[str, any]:
@@ -167,7 +180,7 @@ class Plugin:
         """Check if there's a newer version available on GitHub."""
         try:
             # Get current version
-            current_version = "0.1.12"  # This should be updated automatically
+            current_version = "0.1.13"  # This should be updated automatically
             
             # GitHub API to get latest release
             api_url = "https://api.github.com/repos/deegan/deckydiscord/releases/latest"
@@ -183,7 +196,7 @@ class Plugin:
                 
                 req = urllib.request.Request(
                     api_url,
-                    headers={'User-Agent': 'Deckycord-Plugin/0.1.12'}
+                    headers={'User-Agent': 'Deckycord-Plugin/0.1.13'}
                 )
                 
                 with urllib.request.urlopen(req, context=ssl_context, timeout=10) as response:
@@ -248,7 +261,7 @@ class Plugin:
                     
                     req = urllib.request.Request(
                         download_url,
-                        headers={'User-Agent': 'Deckycord-Plugin/0.1.12'}
+                        headers={'User-Agent': 'Deckycord-Plugin/0.1.13'}
                     )
                     
                     with urllib.request.urlopen(req, context=ssl_context, timeout=30) as response:
@@ -506,6 +519,39 @@ class Plugin:
                 "success": False, 
                 "error": str(e),
                 "servers": []
+            }
+
+    async def get_oauth_url(self) -> Dict[str, any]:
+        """Generate OAuth authorization URL for the user."""
+        try:
+            client_id = "1511445489386787129"
+            scopes = "rpc+guilds+guilds.members.read+guilds.channels.read"
+            redirect_uri = "http://localhost"
+            
+            oauth_url = (
+                f"https://discord.com/api/oauth2/authorize?"
+                f"client_id={client_id}&"
+                f"permissions=0&"
+                f"redirect_uri={redirect_uri}&"
+                f"response_type=code&"
+                f"scope={scopes}"
+            )
+            
+            return {
+                "success": True,
+                "oauth_url": oauth_url,
+                "instructions": [
+                    "1. Open this URL in your browser while Discord is running",
+                    "2. Click 'Authorize' when prompted", 
+                    "3. Return to the plugin and reconnect to Discord",
+                    "4. You should then see real Discord servers instead of suggestions"
+                ]
+            }
+        except Exception as e:
+            decky.logger.error(f"Error generating OAuth URL: {e}")
+            return {
+                "success": False,
+                "error": str(e)
             }
 
     async def get_voice_channels(self, guild_id: str) -> Dict[str, any]:

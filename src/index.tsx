@@ -58,6 +58,7 @@ const getVoiceChannels = callable<[string], any>("get_voice_channels");
 const joinVoiceChannel = callable<[string, string], any>("join_voice_channel");
 const leaveVoiceChannel = callable<[string], any>("leave_voice_channel");
 const discoverDiscordServers = callable<[], any>("discover_discord_servers");
+const getOAuthUrl = callable<[], any>("get_oauth_url");
 
 function Content() {
   const [status, setStatus] = useState<ConnectionStatus>({ connected: false, pypresence_available: false });
@@ -72,6 +73,8 @@ function Content() {
   const [voiceChannels, setVoiceChannels] = useState<{[serverId: string]: VoiceChannel[]}>({});
   const [discoveredServers, setDiscoveredServers] = useState<any[]>([]);
   const [showDiscovery, setShowDiscovery] = useState(false);
+  const [showOAuthHelp, setShowOAuthHelp] = useState(false);
+  const [oauthInfo, setOauthInfo] = useState<any>(null);
 
   useEffect(() => {
     loadStatus();
@@ -387,6 +390,31 @@ function Content() {
     }
   };
 
+  const handleGetOAuthHelp = async () => {
+    try {
+      const result = await getOAuthUrl();
+      if (result.success) {
+        setOauthInfo(result);
+        setShowOAuthHelp(true);
+        toaster.toast({
+          title: "OAuth Help Ready",
+          body: "Follow the instructions to authorize Discord access"
+        });
+      } else {
+        toaster.toast({
+          title: "OAuth Help Failed",
+          body: result.error || "Could not generate OAuth URL"
+        });
+      }
+    } catch (error) {
+      console.error("Failed to get OAuth help:", error);
+      toaster.toast({
+        title: "OAuth Help Error",
+        body: "Failed to get authorization help"
+      });
+    }
+  };
+
   const ServerRow = ({ server, isFavorite }: { server: Guild; isFavorite: boolean }) => {
     const isExpanded = expandedServer === server.id;
     const serverVoiceChannels = voiceChannels[server.id] || [];
@@ -660,7 +688,50 @@ function Content() {
                     📡 = Real Discord servers, 💡 = Common suggestions
                   </div>
                 </PanelSectionRow>
+                
+                {/* Show OAuth help if we only have suggestions */}
+                {discoveredServers.length > 0 && discoveredServers.every(s => s.source === "suggestion") && (
+                  <PanelSectionRow>
+                    <ButtonItem
+                      layout="below"
+                      onClick={handleGetOAuthHelp}
+                      style={{ fontSize: "0.8em", padding: "4px 8px", backgroundColor: "#5865F2" }}
+                    >
+                      🔐 Get Real Discord Servers (OAuth Setup)
+                    </ButtonItem>
+                  </PanelSectionRow>
+                )}
               </>
+            )}
+            
+            {/* OAuth Help Section */}
+            {showOAuthHelp && oauthInfo && (
+              <div style={{ marginTop: "12px", padding: "12px", backgroundColor: "#1a1a1a", borderRadius: "6px" }}>
+                <div style={{ fontSize: "0.9em", fontWeight: "bold", marginBottom: "8px", color: "#5865F2" }}>
+                  🔐 Discord OAuth Authorization Required
+                </div>
+                <div style={{ fontSize: "0.8em", color: "#ccc", marginBottom: "8px" }}>
+                  To see your real Discord servers, you need to authorize this app:
+                </div>
+                
+                {oauthInfo.instructions.map((instruction: string, index: number) => (
+                  <div key={index} style={{ fontSize: "0.8em", color: "#aaa", margin: "4px 0" }}>
+                    {instruction}
+                  </div>
+                ))}
+                
+                <div style={{ fontSize: "0.7em", color: "#888", marginTop: "8px", wordBreak: "break-all" }}>
+                  OAuth URL: {oauthInfo.oauth_url}
+                </div>
+                
+                <ButtonItem
+                  layout="below"
+                  onClick={() => setShowOAuthHelp(false)}
+                  style={{ fontSize: "0.8em", padding: "4px 8px", marginTop: "8px" }}
+                >
+                  Close Help
+                </ButtonItem>
+              </div>
             )}
           </PanelSection>
         </>
