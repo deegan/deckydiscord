@@ -75,11 +75,11 @@ This script will:
 1. Go to [Discord Developer Portal](https://discord.com/developers/social-sdk)
 2. Log in to your Discord account
 3. Download the Discord Social SDK
-4. Extract to `native/discord_sdk/`
+4. Extract to `native/discord_social_sdk/`
 
 Expected structure:
 ```
-native/discord_sdk/
+native/discord_social_sdk/
 ├── include/discordpp.h
 ├── include/cdiscord.h  
 ├── lib/release/libdiscord_partner_sdk.so
@@ -135,7 +135,7 @@ discord-rpc-plugin/
 │   ├── python_bindings.cpp       # pybind11 Python bindings
 │   ├── CMakeLists.txt            # CMake build configuration
 │   ├── build.sh                  # Build script
-│   └── discord_sdk/              # Discord Social SDK (download separately)
+│   └── discord_social_sdk/       # Discord Social SDK (download separately)
 ├── py_modules/
 │   ├── discord_social_sdk.py     # High-level Python wrapper
 │   └── discord_sdk_native.*      # Generated native module
@@ -205,7 +205,7 @@ make test
 ### Common Issues
 
 **"Discord SDK not available"**
-- Ensure Discord Social SDK is downloaded to `native/discord_sdk/`
+- Ensure Discord Social SDK is downloaded to `native/discord_social_sdk/`
 - Rebuild with `make build-native`
 - Check CMake output for missing libraries
 

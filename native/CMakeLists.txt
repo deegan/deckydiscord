@@ -10,8 +10,8 @@ find_package(pybind11 REQUIRED)
 
 # Discord Social SDK Configuration
 # You'll need to download the Discord Social SDK from Discord Developer Portal
-# and extract it to a 'discord_sdk' directory
-set(DISCORD_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/discord_sdk")
+# and extract it to a 'discord_social_sdk' directory
+set(DISCORD_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/discord_social_sdk")
 
 # Check if Discord SDK exists
 if(NOT EXISTS "${DISCORD_SDK_DIR}")

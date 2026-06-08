@@ -39,7 +39,7 @@ echo "=============================="
 echo ""
 
 # Check if Discord SDK already exists
-if [[ -f "native/discord_sdk/include/discordpp.h" ]]; then
+if [[ -f "native/discord_social_sdk/include/discordpp.h" ]]; then
     success "Discord SDK already installed!"
     
     # Check if native module is built
@@ -68,10 +68,10 @@ else
     echo "4. 📁 Extract the downloaded ZIP file"
     echo ""
     echo "5. 📂 Copy the extracted contents to:"
-    echo "   $(pwd)/native/discord_sdk/"
+    echo "   $(pwd)/native/discord_social_sdk/"
     echo ""
     echo "   The structure should look like:"
-    echo "   native/discord_sdk/"
+    echo "   native/discord_social_sdk/"
     echo "   ├── include/discordpp.h"
     echo "   ├── include/cdiscord.h"
     echo "   ├── lib/release/libdiscord_partner_sdk.so"
@@ -86,10 +86,10 @@ else
     fi
     
     # Verify SDK was installed
-    if [[ ! -f "native/discord_sdk/include/discordpp.h" ]]; then
-        error "Discord SDK still not found at native/discord_sdk/"
+    if [[ ! -f "native/discord_social_sdk/include/discordpp.h" ]]; then
+        error "Discord SDK still not found at native/discord_social_sdk/"
         error "Please ensure you extracted the SDK to the correct location"
-        error "Looking for: native/discord_sdk/include/discordpp.h"
+        error "Looking for: native/discord_social_sdk/include/discordpp.h"
         exit 1
     fi
     
