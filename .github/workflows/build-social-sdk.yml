@@ -1,0 +1,241 @@
+name: Build Discord Social SDK Plugin
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [created]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # Build frontend-only package (works without Discord SDK)
+  build-frontend:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v5
+      with:
+        node-version: '20'
+        
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v5
+      with:
+        version: 9
+        
+    - name: Install frontend dependencies
+      run: pnpm install
+      
+    - name: Build frontend
+      run: pnpm run build
+      
+    - name: Get version from tag
+      id: get_version
+      run: |
+        if [[ $GITHUB_REF == refs/tags/* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/}
+        else
+          VERSION=$(jq -r '.version' package.json)
+        fi
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Using version: $VERSION"
+        
+    - name: Create frontend-only plugin package
+      run: |
+        mkdir -p release/deckycord-frontend
+        cp -r dist release/deckycord-frontend/
+        cp main.py release/deckycord-frontend/
+        cp plugin.json release/deckycord-frontend/
+        cp package.json release/deckycord-frontend/
+        cp README.md release/deckycord-frontend/
+        cp README_SOCIAL_SDK.md release/deckycord-frontend/
+        cp LICENSE release/deckycord-frontend/
+        cp Makefile release/deckycord-frontend/
+        cp test_build.py release/deckycord-frontend/
+        cp -r assets release/deckycord-frontend/ 2>/dev/null || true
+        cp -r defaults release/deckycord-frontend/ 2>/dev/null || true
+        cp -r py_modules release/deckycord-frontend/ 2>/dev/null || true
+        cp -r native release/deckycord-frontend/ 2>/dev/null || true
+        cp -r src release/deckycord-frontend/ 2>/dev/null || true
+        
+    - name: Create frontend-only release zip
+      run: |
+        cd release
+        zip -r deckycord-frontend-${{ steps.get_version.outputs.version }}.zip deckycord-frontend/
+        
+    - name: Upload frontend build artifacts
+      uses: actions/upload-artifact@v5
+      with:
+        name: deckycord-frontend-${{ steps.get_version.outputs.version }}
+        path: release/deckycord-frontend-${{ steps.get_version.outputs.version }}.zip
+        
+    - name: Upload frontend to release (if tagged)
+      if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v2
+      with:
+        files: release/deckycord-frontend-${{ steps.get_version.outputs.version }}.zip
+        name: "Deckycord v${{ steps.get_version.outputs.version }} - Discord Social SDK"
+        body: |
+          # 🎮 Deckycord Discord Social SDK v${{ steps.get_version.outputs.version }}
+          
+          ## 🎯 New in this version: Discord Social SDK Integration!
+          
+          This version moves from Discord RPC to Discord Social SDK for reliable voice control without OAuth limitations.
+          
+          ## 📦 What's included:
+          - **Frontend-only package** - Requires manual native module build
+          - Complete source code for Discord Social SDK integration
+          - Updated UI for lobby-based voice system
+          - Build scripts and documentation
+          
+          ## 🛠️ Installation Steps:
+          
+          1. **Download this release**
+          2. **Extract to your plugin directory**
+          3. **Download Discord Social SDK** from [Discord Developer Portal](https://discord.com/developers/social-sdk)
+          4. **Extract Discord SDK** to `native/discord_sdk/`
+          5. **Build native module**: `make build-native`
+          6. **Complete build**: `make build-frontend`
+          
+          ## ✨ New Features:
+          - 🎮 **Voice Lobbies** - Create Discord voice rooms
+          - 📨 **Invite System** - Share invite codes  
+          - 🎤 **Full Voice Control** - Mute/deafen without OAuth
+          - ⚡ **Steam Deck Compatible** - No browser requirements
+          
+          ## 📖 Documentation:
+          - Complete setup guide in `README_SOCIAL_SDK.md`
+          - Test build with `python3 test_build.py`
+          - Use `make help` for build options
+          
+          ## ⚠️ Important Notes:
+          - This version requires Discord Social SDK (not included due to licensing)
+          - Manual build step required - see documentation
+          - Works without OAuth complexity of previous RPC version
+          
+          ## 🔧 For Developers:
+          - Full C++ Discord SDK wrapper included
+          - Python bindings with pybind11
+          - CMake build system
+          - Cross-platform support
+
+  # Try to build with stub Discord SDK (won't have full functionality but tests build system)
+  build-stub-native:
+    runs-on: ubuntu-latest
+    needs: build-frontend
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v5
+      with:
+        node-version: '20'
+        
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v5
+      with:
+        version: 9
+        
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake build-essential python3-dev python3-pip
+        pip install pybind11 numpy
+        
+    - name: Install Node dependencies
+      run: pnpm install
+      
+    - name: Create stub Discord SDK directory
+      run: |
+        mkdir -p native/discord_sdk/include/discord
+        mkdir -p native/discord_sdk/lib/linux/x86_64
+        
+        # Create minimal stub header for build testing
+        cat > native/discord_sdk/include/discord/discord.h << 'EOF'
+        #pragma once
+        // Stub Discord SDK header for CI build testing
+        namespace discord {
+          enum class Result { Ok };
+          struct CreateParams { int64_t client_id; int flags; };
+          enum CreateFlags { Default = 0 };
+          class Core {
+          public:
+            static Result Create(CreateParams params, Core** instance);
+          };
+        }
+        EOF
+        
+        echo "Stub Discord SDK created for build testing"
+        
+    - name: Build stub native module
+      run: |
+        cd native
+        mkdir -p build
+        cd build
+        cmake .. -DCMAKE_BUILD_TYPE=Release
+        make -j$(nproc)
+        echo "Stub native module built successfully"
+        
+    - name: Test stub build
+      run: |
+        python3 test_build.py
+        echo "Build test completed"
+        
+    - name: Package with stub
+      run: |
+        mkdir -p release/deckycord-stub
+        pnpm run build
+        cp -r dist release/deckycord-stub/
+        cp -r py_modules release/deckycord-stub/
+        cp main.py plugin.json package.json release/deckycord-stub/
+        cp README.md README_SOCIAL_SDK.md LICENSE release/deckycord-stub/
+        cp Makefile test_build.py release/deckycord-stub/
+        cp -r native release/deckycord-stub/
+        cp -r src release/deckycord-stub/
+        
+        # Add build info
+        cat > release/deckycord-stub/BUILD_INFO.md << 'EOF'
+        # Build Information
+        
+        This package was built with a stub Discord SDK for CI testing.
+        
+        ## For Full Functionality:
+        1. Download real Discord Social SDK
+        2. Extract to native/discord_sdk/
+        3. Rebuild with: make build-native
+        
+        ## Current State:
+        - Frontend: ✓ Built
+        - Native Module: ⚠️ Stub version (build system tested)
+        - Discord SDK: ❌ Not included (licensing)
+        EOF
+        
+    - name: Get version for stub build
+      id: get_version_stub
+      run: |
+        VERSION=$(jq -r '.version' package.json)
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        
+    - name: Create stub build zip
+      run: |
+        cd release
+        zip -r deckycord-stub-build-${{ steps.get_version_stub.outputs.version }}.zip deckycord-stub/
+        
+    - name: Upload stub build artifacts
+      uses: actions/upload-artifact@v5
+      with:
+        name: deckycord-stub-build-${{ steps.get_version_stub.outputs.version }}
+        path: release/deckycord-stub-build-${{ steps.get_version_stub.outputs.version }}.zip

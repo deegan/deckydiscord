@@ -1,0 +1,1040 @@
+import os
+import sys
+import decky
+import asyncio
+import json
+import urllib.request
+import urllib.parse
+import ssl
+import shutil
+import tempfile
+import zipfile
+import time
+from typing import Dict, List, Optional
+
+# Add py_modules to path for bundled dependencies
+plugin_dir = os.path.dirname(os.path.abspath(__file__))
+py_modules_path = os.path.join(plugin_dir, "py_modules")
+if py_modules_path not in sys.path:
+    sys.path.insert(0, py_modules_path)
+
+# Debug the module loading
+decky.logger.info(f"Plugin directory: {plugin_dir}")
+decky.logger.info(f"py_modules path: {py_modules_path}")
+decky.logger.info(f"py_modules exists: {os.path.exists(py_modules_path)}")
+decky.logger.info(f"simple_discord_rpc.py exists: {os.path.exists(os.path.join(py_modules_path, 'simple_discord_rpc.py'))}")
+decky.logger.info(f"sys.path includes py_modules: {py_modules_path in sys.path}")
+
+try:
+    from discord_social_sdk import DiscordSocialSDK
+    DISCORD_SDK_AVAILABLE = True
+    decky.logger.info("Using Discord Social SDK implementation")
+except ImportError as e:
+    DISCORD_SDK_AVAILABLE = False
+    decky.logger.warning(f"Discord Social SDK not available: {e}")
+    decky.logger.error(f"Current sys.path: {sys.path[:5]}...")  # Show first 5 path entries
+    decky.logger.error("CRITICAL: discord_social_sdk.py is missing from py_modules directory!")
+    decky.logger.error("This indicates an incomplete plugin installation or missing native module.")
+    decky.logger.error("Please build the native module using: cd native && ./build.sh")
+
+class Plugin:
+    def __init__(self):
+        self.sdk = None
+        self.connected = False
+        self.connection_error = None
+        self.current_lobbies = {}
+        self.voice_state = None
+        # Use a writable location for config file
+        plugin_dir = os.path.dirname(__file__)
+        try:
+            # Try plugin directory first
+            test_file = os.path.join(plugin_dir, "test_write.tmp")
+            with open(test_file, 'w') as f:
+                f.write("test")
+            os.remove(test_file)
+            self.config_file = os.path.join(plugin_dir, "server_config.json")
+        except (PermissionError, OSError):
+            # Fall back to user home directory if plugin dir isn't writable
+            home_dir = os.path.expanduser("~")
+            self.config_file = os.path.join(home_dir, ".deckycord_servers.json")
+            decky.logger.info(f"Using fallback config location: {self.config_file}")
+        self.servers = self._load_servers()
+        
+    async def get_connection_status(self) -> Dict[str, any]:
+        status = {
+            "connected": self.connected,
+            "error": self.connection_error,
+            "discord_sdk_available": DISCORD_SDK_AVAILABLE
+        }
+        
+        # Add helpful error message if Discord SDK is not available
+        if not DISCORD_SDK_AVAILABLE:
+            status["error"] = "Discord Social SDK not available. Please build the native module: cd native && ./build.sh"
+        
+        return status
+    
+    async def connect_to_discord(self) -> Dict[str, any]:
+        if not DISCORD_SDK_AVAILABLE:
+            self.connection_error = "Discord Social SDK not available"
+            return await self.get_connection_status()
+            
+        try:
+            if self.sdk is None:
+                self.sdk = DiscordSocialSDK(client_id='1511445489386787129')
+                
+                # Set up event callbacks
+                self.sdk.set_event_callbacks(
+                    on_lobby_joined=self._on_lobby_joined,
+                    on_lobby_left=self._on_lobby_left,
+                    on_voice_state_changed=self._on_voice_state_changed,
+                    on_error=self._on_sdk_error
+                )
+            
+            # Run the blocking connect call in a thread to avoid blocking the event loop
+            loop = asyncio.get_event_loop()
+            connection_result = await loop.run_in_executor(None, self.sdk.connect)
+            
+            if connection_result and self.sdk.is_connected():
+                self.connected = True
+                self.connection_error = None
+                user = self.sdk.get_current_user()
+                username = user['username'] if user else 'Unknown'
+                decky.logger.info(f"Successfully connected to Discord Social SDK - user: {username}")
+            else:
+                self.connected = False
+                self.connection_error = self.sdk.get_last_error() or "Discord SDK connect() returned False"
+                decky.logger.error(f"Discord SDK connection failed: {self.connection_error}")
+            
+        except Exception as e:
+            self.connected = False
+            self.connection_error = str(e)
+            decky.logger.error(f"Failed to connect to Discord Social SDK: {e}")
+            
+        return await self.get_connection_status()
+    
+    async def disconnect_from_discord(self) -> Dict[str, any]:
+        if self.sdk and self.connected:
+            try:
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, self.sdk.disconnect)
+                self.connected = False
+                self.connection_error = None
+                self.current_lobbies = {}
+                decky.logger.info("Disconnected from Discord Social SDK")
+            except Exception as e:
+                decky.logger.error(f"Error disconnecting from Discord: {e}")
+                self.connection_error = str(e)
+        
+        return await self.get_connection_status()
+    
+    async def get_guilds(self) -> Dict[str, any]:
+        """Get guilds - now redirects to the new server management system."""
+        decky.logger.info(f"get_guilds called - redirecting to get_servers")
+        return await self.get_servers()
+
+    async def debug_discord_connection(self) -> Dict[str, any]:
+        """Debug Discord connection issues with detailed logging."""
+        try:
+            if not DISCORD_SDK_AVAILABLE:
+                return {
+                    "success": False,
+                    "error": "Discord Social SDK not available",
+                    "message": "Discord SDK implementation not loaded"
+                }
+            
+            # Test SDK availability
+            try:
+                from discord_social_sdk import DiscordSocialSDK
+                test_sdk = DiscordSocialSDK()
+                is_available = test_sdk.is_available()
+                
+                if not is_available:
+                    return {
+                        "success": False,
+                        "error": "Native Discord SDK module not available",
+                        "message": "Native module not built or loaded properly"
+                    }
+                
+                # Test connection capability
+                loop = asyncio.get_event_loop()
+                
+                def test_connection():
+                    try:
+                        temp_sdk = DiscordSocialSDK()
+                        result = temp_sdk.connect()
+                        if result:
+                            user = temp_sdk.get_current_user()
+                            temp_sdk.disconnect()
+                            return {"connected": True, "user": user}
+                        else:
+                            error = temp_sdk.get_last_error()
+                            return {"connected": False, "error": error}
+                    except Exception as e:
+                        return {"connected": False, "error": str(e)}
+                
+                test_result = await loop.run_in_executor(None, test_connection)
+                
+                if test_result["connected"]:
+                    user = test_result.get("user", {})
+                    username = user.get("username", "Unknown") if user else "Unknown"
+                    decky.logger.info(f"Debug: Successfully connected to Discord as {username}")
+                    return {
+                        "success": True,
+                        "sdk_available": True,
+                        "connection_test": True,
+                        "user": user,
+                        "message": f"Connection test successful - user: {username}"
+                    }
+                else:
+                    error = test_result.get("error", "Unknown error")
+                    decky.logger.warning(f"Debug: Connection test failed - {error}")
+                    return {
+                        "success": False,
+                        "sdk_available": True,
+                        "connection_test": False,
+                        "error": error,
+                        "message": f"Connection test failed: {error}"
+                    }
+                
+            except Exception as import_error:
+                decky.logger.error(f"SDK import/test error: {import_error}")
+                return {
+                    "success": False,
+                    "error": f"SDK test failed: {str(import_error)}",
+                    "message": "Could not test Discord SDK"
+                }
+                
+        except Exception as e:
+            error_msg = f"Debug error: {str(e)}"
+            decky.logger.error(error_msg)
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Debug function failed - check logs"
+            }
+
+    async def check_for_updates(self) -> Dict[str, any]:
+        """Check if there's a newer version available on GitHub."""
+        try:
+            # Get current version
+            current_version = "0.3.1"  # This should be updated automatically
+            
+            # GitHub API to get latest release
+            api_url = "https://api.github.com/repos/deegan/deckydiscord/releases/latest"
+            
+            loop = asyncio.get_event_loop()
+            def fetch_latest():
+                # Skip secure SSL entirely on Steam Deck - go straight to insecure
+                decky.logger.info(f"Checking for updates (Steam Deck SSL workaround)")
+                
+                ssl_context = ssl.create_default_context()
+                ssl_context.check_hostname = False
+                ssl_context.verify_mode = ssl.CERT_NONE
+                
+                req = urllib.request.Request(
+                    api_url,
+                    headers={'User-Agent': 'Deckycord-Plugin/0.2.2'}
+                )
+                
+                with urllib.request.urlopen(req, context=ssl_context, timeout=10) as response:
+                    return json.loads(response.read().decode())
+            
+            latest_release = await loop.run_in_executor(None, fetch_latest)
+            latest_version = latest_release.get('tag_name', '')
+            
+            # Compare versions
+            is_newer = latest_version != f"v{current_version}"
+            
+            decky.logger.info(f"Update check result - Current: v{current_version}, Latest: {latest_version}, Update available: {is_newer}")
+            
+            return {
+                "success": True,
+                "current_version": current_version,
+                "latest_version": latest_version,
+                "update_available": is_newer,
+                "download_url": latest_release.get('assets', [{}])[0].get('browser_download_url') if latest_release.get('assets') else None,
+                "release_url": f"https://github.com/deegan/deckydiscord/releases/tag/{latest_version}"
+            }
+            
+        except Exception as e:
+            decky.logger.error(f"Error checking for updates: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"Failed to check for updates: {str(e)[:100]}..."
+            }
+
+    async def update_plugin(self) -> Dict[str, any]:
+        """Download and install the latest version of the plugin."""
+        try:
+            # First check for updates
+            update_check = await self.check_for_updates()
+            if not update_check.get("success") or not update_check.get("update_available"):
+                return {
+                    "success": False,
+                    "message": "No updates available or update check failed"
+                }
+            
+            download_url = update_check.get("download_url")
+            if not download_url:
+                return {
+                    "success": False,
+                    "message": "No download URL found"
+                }
+            
+            decky.logger.info(f"Downloading update from: {download_url}")
+            
+            loop = asyncio.get_event_loop()
+            
+            def download_and_install():
+                # Download the update
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    zip_path = os.path.join(temp_dir, "update.zip")
+                    
+                    # Skip secure SSL entirely on Steam Deck
+                    ssl_context = ssl.create_default_context()
+                    ssl_context.check_hostname = False
+                    ssl_context.verify_mode = ssl.CERT_NONE
+                    
+                    req = urllib.request.Request(
+                        download_url,
+                        headers={'User-Agent': 'Deckycord-Plugin/0.2.2'}
+                    )
+                    
+                    with urllib.request.urlopen(req, context=ssl_context, timeout=30) as response:
+                        with open(zip_path, 'wb') as f:
+                            shutil.copyfileobj(response, f)
+                    
+                    # Extract the ZIP
+                    extract_path = os.path.join(temp_dir, "extracted")
+                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                        zip_ref.extractall(extract_path)
+                    
+                    # Find the plugin directory in the extracted files
+                    plugin_source = None
+                    for item in os.listdir(extract_path):
+                        if os.path.isdir(os.path.join(extract_path, item)):
+                            plugin_source = os.path.join(extract_path, item)
+                            break
+                    
+                    if not plugin_source:
+                        raise Exception("Could not find plugin directory in download")
+                    
+                    # Copy files to current plugin directory
+                    plugin_target = os.path.dirname(os.path.abspath(__file__))
+                    
+                    # Create backup directory with better error handling
+                    backup_dir = os.path.join(plugin_target, "backup_" + str(int(time.time())))
+                    try:
+                        os.makedirs(backup_dir)
+                    except PermissionError:
+                        # Try creating backup in temp directory instead
+                        backup_dir = os.path.join(tempfile.gettempdir(), "deckycord_backup_" + str(int(time.time())))
+                        os.makedirs(backup_dir)
+                    
+                    # First, backup critical files
+                    critical_files = ["main.py", "plugin.json", "package.json"]
+                    for file_name in critical_files:
+                        src_path = os.path.join(plugin_target, file_name)
+                        if os.path.exists(src_path):
+                            shutil.copy2(src_path, os.path.join(backup_dir, file_name))
+                    
+                    # Copy new files, handling permission errors gracefully
+                    update_errors = []
+                    for item in os.listdir(plugin_source):
+                        source_path = os.path.join(plugin_source, item)
+                        target_path = os.path.join(plugin_target, item)
+                        
+                        try:
+                            if os.path.isdir(source_path):
+                                if os.path.exists(target_path):
+                                    # Try to remove, but don't fail if we can't
+                                    try:
+                                        shutil.rmtree(target_path)
+                                    except PermissionError:
+                                        # Directory in use, try renaming it
+                                        backup_path = target_path + "_old"
+                                        if os.path.exists(backup_path):
+                                            shutil.rmtree(backup_path)
+                                        os.rename(target_path, backup_path)
+                                shutil.copytree(source_path, target_path)
+                            else:
+                                shutil.copy2(source_path, target_path)
+                        except Exception as copy_error:
+                            update_errors.append(f"{item}: {str(copy_error)}")
+                    
+                    # Clean up backup if update was successful
+                    if not update_errors:
+                        shutil.rmtree(backup_dir)
+                    
+                    if update_errors:
+                        raise Exception(f"Update partial - some files failed: {'; '.join(update_errors)}")
+                    
+                    return True
+            
+            await loop.run_in_executor(None, download_and_install)
+            
+            decky.logger.info("Plugin updated successfully")
+            return {
+                "success": True,
+                "message": f"Updated to {update_check.get('latest_version')}. Please restart Decky Loader or reload the plugin to complete the update.",
+                "restart_required": True
+            }
+            
+        except Exception as e:
+            decky.logger.error(f"Error updating plugin: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to update plugin"
+            }
+
+    def _load_servers(self) -> List[Dict]:
+        """Load server configuration from file."""
+        try:
+            if os.path.exists(self.config_file):
+                with open(self.config_file, 'r') as f:
+                    return json.load(f)
+        except Exception as e:
+            decky.logger.warning(f"Could not load server config: {e}")
+        
+        # Default server list
+        return [
+            {"id": "add_server", "name": "➕ Add Your Discord Server", "favorite": False, "configurable": True},
+            {"id": "example1", "name": "🎮 Gaming Server", "favorite": True, "configurable": False},
+            {"id": "example2", "name": "👥 Friends Chat", "favorite": True, "configurable": False}
+        ]
+
+    def _save_servers(self) -> bool:
+        """Save server configuration to file."""
+        try:
+            with open(self.config_file, 'w') as f:
+                json.dump(self.servers, f, indent=2)
+            return True
+        except Exception as e:
+            decky.logger.error(f"Could not save server config: {e}")
+            return False
+
+    async def add_server(self, name: str) -> Dict[str, any]:
+        """Add a new lobby/server."""
+        try:
+            if self.connected and self.sdk:
+                # Create a real Discord lobby
+                loop = asyncio.get_event_loop()
+                lobby_id = await loop.run_in_executor(None, self.sdk.create_lobby, name, 10)
+                
+                if lobby_id:
+                    self.current_lobbies[lobby_id] = name
+                    decky.logger.info(f"Created Discord lobby: {name} ({lobby_id})")
+                    return {
+                        "success": True, 
+                        "server": {
+                            "id": lobby_id,
+                            "name": name,
+                            "favorite": True,
+                            "configurable": False,
+                            "is_lobby": True
+                        }
+                    }
+                else:
+                    error = self.sdk.get_last_error()
+                    decky.logger.error(f"Failed to create lobby: {error}")
+                    # Fall back to local server entry
+            
+            # Create local server entry (for when not connected or lobby creation fails)
+            import uuid
+            new_server = {
+                "id": str(uuid.uuid4()),
+                "name": name,
+                "favorite": True,
+                "configurable": False,
+                "is_lobby": False
+            }
+            self.servers.append(new_server)
+            
+            if self._save_servers():
+                return {"success": True, "server": new_server}
+            else:
+                return {"success": False, "error": "Failed to save server"}
+        except Exception as e:
+            decky.logger.error(f"Error adding server: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def remove_server(self, server_id: str) -> Dict[str, any]:
+        """Remove a server/lobby from the list."""
+        try:
+            # If it's a Discord lobby, leave/delete it
+            if self.connected and self.sdk and server_id in self.current_lobbies:
+                loop = asyncio.get_event_loop()
+                
+                # Try to delete the lobby (if we're owner) or just leave it
+                delete_result = await loop.run_in_executor(None, self.sdk.delete_lobby, server_id)
+                if not delete_result:
+                    # If delete failed, try to leave
+                    await loop.run_in_executor(None, self.sdk.leave_lobby, server_id)
+                
+                self.current_lobbies.pop(server_id, None)
+                decky.logger.info(f"Removed Discord lobby: {server_id}")
+            
+            # Remove from local server list
+            self.servers = [s for s in self.servers if s["id"] != server_id]
+            
+            if self._save_servers():
+                return {"success": True}
+            else:
+                return {"success": False, "error": "Failed to save changes"}
+        except Exception as e:
+            decky.logger.error(f"Error removing server: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def toggle_favorite(self, server_id: str) -> Dict[str, any]:
+        """Toggle favorite status of a server."""
+        try:
+            for server in self.servers:
+                if server["id"] == server_id:
+                    server["favorite"] = not server.get("favorite", False)
+                    break
+            
+            if self._save_servers():
+                return {"success": True}
+            else:
+                return {"success": False, "error": "Failed to save changes"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def get_servers(self) -> Dict[str, any]:
+        """Get the configured lobby list with favorites."""
+        if not self.connected:
+            return {"success": False, "error": "Not connected to Discord"}
+        
+        try:
+            # Get current lobbies from Discord SDK
+            loop = asyncio.get_event_loop()
+            lobbies = await loop.run_in_executor(None, self.sdk.get_lobbies)
+            
+            # Convert lobbies to server-like format for frontend compatibility
+            servers = []
+            favorites = []
+            
+            for lobby in lobbies:
+                lobby_item = {
+                    "id": lobby["id"],
+                    "name": lobby["name"],
+                    "favorite": lobby["id"] in self.current_lobbies,
+                    "configurable": False,
+                    "member_count": lobby["member_count"],
+                    "capacity": lobby["capacity"],
+                    "voice_enabled": lobby["voice_enabled"]
+                }
+                
+                if lobby_item["favorite"]:
+                    favorites.append(lobby_item)
+                else:
+                    servers.append(lobby_item)
+            
+            # Add local configured servers/lobbies from file
+            local_favorites = [s for s in self.servers if s.get("favorite", False)]
+            local_regular = [s for s in self.servers if not s.get("favorite", False)]
+            
+            favorites.extend(local_favorites)
+            servers.extend(local_regular)
+            
+            return {
+                "success": True,
+                "connected_to_discord": True,
+                "favorites": favorites,
+                "servers": servers,
+                "total_count": len(favorites) + len(servers)
+            }
+        except Exception as e:
+            decky.logger.error(f"Error getting servers: {e}")
+            # Fallback to local servers if SDK fails
+            favorites = [s for s in self.servers if s.get("favorite", False)]
+            regular = [s for s in self.servers if not s.get("favorite", False)]
+            
+            return {
+                "success": True,
+                "connected_to_discord": True,
+                "favorites": favorites,
+                "servers": regular,
+                "total_count": len(self.servers),
+                "fallback": True
+            }
+
+    async def discover_discord_servers(self) -> Dict[str, any]:
+        """Attempt to discover user's actual Discord servers for easy adding."""
+        decky.logger.info("discover_discord_servers called")
+        
+        if not self.connected or not self.rpc:
+            decky.logger.warning("Discovery failed: not connected to Discord")
+            return {"success": False, "error": "Not connected to Discord"}
+        
+        discovered_servers = []
+        
+        # Try multiple approaches to get server info
+        try:
+            loop = asyncio.get_event_loop()
+            
+            # Method 1: Try GET_GUILDS (will likely fail but worth trying)
+            def try_get_guilds():
+                try:
+                    decky.logger.info("Attempting GET_GUILDS request...")
+                    guild_request = {
+                        "cmd": "GET_GUILDS",
+                        "args": {},
+                        "nonce": "discover-guilds"
+                    }
+                    
+                    self.rpc._send_data(1, guild_request)
+                    op, data = self.rpc._recv_data()
+                    
+                    if op == 1:
+                        response = json.loads(data.decode('utf-8'))
+                        decky.logger.info(f"GET_GUILDS response: {response}")
+                        
+                        if response.get('cmd') == 'GET_GUILDS' and response.get('evt') == 'RESPONSE':
+                            guilds = response.get('data', {}).get('guilds', [])
+                            decky.logger.info(f"Successfully retrieved {len(guilds)} real Discord servers!")
+                            return [{"id": g.get('id'), "name": g.get('name'), "source": "api"} for g in guilds]
+                        elif response.get('evt') == 'ERROR':
+                            error_data = response.get('data', {})
+                            decky.logger.warning(f"GET_GUILDS error: {error_data}")
+                            if error_data.get('code') == 4006:
+                                decky.logger.info("OAuth scopes need to be authorized - using fallback suggestions")
+                except Exception as e:
+                    decky.logger.warning(f"GET_GUILDS failed: {e}")
+                return []
+            
+            api_servers = await loop.run_in_executor(None, try_get_guilds)
+            decky.logger.info(f"API servers found: {len(api_servers)}")
+            discovered_servers.extend(api_servers)
+            
+            # Method 2: Common Discord server names (fallback suggestions)
+            if not discovered_servers:
+                decky.logger.info("No API servers found, using fallback suggestions")
+                common_servers = [
+                    {"id": "common1", "name": "🎮 Gaming", "source": "suggestion"},
+                    {"id": "common2", "name": "👥 Friends", "source": "suggestion"},
+                    {"id": "common3", "name": "💼 Work/School", "source": "suggestion"},
+                    {"id": "common4", "name": "🎵 Music", "source": "suggestion"},
+                    {"id": "common5", "name": "🎨 Art/Creative", "source": "suggestion"},
+                    {"id": "common6", "name": "📚 Study Group", "source": "suggestion"},
+                    {"id": "common7", "name": "🏆 Competitive", "source": "suggestion"},
+                    {"id": "common8", "name": "🌍 Community", "source": "suggestion"}
+                ]
+                discovered_servers.extend(common_servers)
+            
+            decky.logger.info(f"Total discovered servers: {len(discovered_servers)}")
+            
+            return {
+                "success": True,
+                "servers": discovered_servers,
+                "source_info": "Real Discord servers" if api_servers else "Common server suggestions",
+                "can_add_custom": True
+            }
+            
+        except Exception as e:
+            decky.logger.error(f"Error discovering servers: {e}")
+            return {
+                "success": False, 
+                "error": str(e),
+                "servers": []
+            }
+
+    async def get_oauth_url(self) -> Dict[str, any]:
+        """Generate OAuth authorization URL for the user."""
+        try:
+            client_id = "1511445489386787129"
+            scopes = "guilds.members.read+guilds.channels.read+guilds+rpc+rpc.voice.write+rpc.voice.read+voice+presences.read"
+            redirect_uri = "https://discord.com/oauth2/authorize?client_id=1511445489386787129"
+            
+            oauth_url = (
+                f"https://discord.com/oauth2/authorize?"
+                f"client_id={client_id}&"
+                f"response_type=code&"
+                f"redirect_uri={redirect_uri}&"
+                f"scope={scopes}"
+            )
+            
+            return {
+                "success": True,
+                "oauth_url": oauth_url,
+                "instructions": [
+                    "1. Open this URL in your browser while Discord is running",
+                    "2. Click 'Authorize' when prompted", 
+                    "3. Return to the plugin and reconnect to Discord",
+                    "4. You should then see real Discord servers instead of suggestions"
+                ]
+            }
+        except Exception as e:
+            decky.logger.error(f"Error generating OAuth URL: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    async def get_voice_channels(self, lobby_id: str) -> Dict[str, any]:
+        """Get voice channels for a specific lobby (simulated for compatibility)."""
+        if not self.connected or not self.sdk:
+            return {"success": False, "error": "Not connected to Discord"}
+        
+        try:
+            loop = asyncio.get_event_loop()
+            lobby_info = await loop.run_in_executor(None, self.sdk.get_lobby_info, lobby_id)
+            
+            if lobby_info:
+                # Simulate voice channels - in Social SDK, the whole lobby is the voice channel
+                voice_channels = [{
+                    "id": f"{lobby_id}_voice",
+                    "name": f"🎤 {lobby_info['name']} Voice",
+                    "user_limit": lobby_info["capacity"],
+                    "position": 1,
+                    "member_count": lobby_info["member_count"]
+                }]
+                
+                return {
+                    "success": True,
+                    "lobby_id": lobby_id,
+                    "voice_channels": voice_channels
+                }
+            else:
+                return {"success": False, "error": "Lobby not found"}
+        except Exception as e:
+            decky.logger.error(f"Error fetching lobby info: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def join_voice_channel(self, channel_id: str, lobby_id: str) -> Dict[str, any]:
+        """Join a voice channel (start voice call in lobby)."""
+        if not self.connected or not self.sdk:
+            return {"success": False, "error": "Not connected to Discord"}
+        
+        try:
+            loop = asyncio.get_event_loop()
+            
+            # First ensure we're in the lobby
+            join_result = await loop.run_in_executor(None, self.sdk.join_lobby, lobby_id)
+            if not join_result:
+                return {"success": False, "error": "Failed to join lobby"}
+            
+            # Start voice call in the lobby
+            voice_result = await loop.run_in_executor(None, self.sdk.start_voice_call, lobby_id)
+            
+            if voice_result:
+                decky.logger.info(f"Successfully joined voice in lobby {lobby_id}")
+                self.voice_state = self.sdk.get_voice_state()
+                return {
+                    "success": True,
+                    "lobby_id": lobby_id,
+                    "message": "Joined voice call successfully"
+                }
+            else:
+                error = self.sdk.get_last_error()
+                return {"success": False, "error": error or "Failed to start voice call"}
+                
+        except Exception as e:
+            decky.logger.error(f"Error joining voice channel: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def leave_voice_channel(self, lobby_id: str) -> Dict[str, any]:
+        """Leave current voice channel (end voice call in lobby)."""
+        if not self.connected or not self.sdk:
+            return {"success": False, "error": "Not connected to Discord"}
+        
+        try:
+            loop = asyncio.get_event_loop()
+            
+            # End voice call in the lobby
+            voice_result = await loop.run_in_executor(None, self.sdk.end_voice_call, lobby_id)
+            
+            if voice_result:
+                decky.logger.info(f"Successfully left voice in lobby {lobby_id}")
+                self.voice_state = self.sdk.get_voice_state()
+                return {
+                    "success": True,
+                    "lobby_id": lobby_id,
+                    "message": "Left voice call successfully"
+                }
+            else:
+                error = self.sdk.get_last_error()
+                return {"success": False, "error": error or "Failed to end voice call"}
+                
+        except Exception as e:
+            decky.logger.error(f"Error leaving voice channel: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def mute_voice(self) -> Dict[str, any]:
+        """Mute local microphone in Discord."""
+        if not self.connected or not self.sdk:
+            return {"success": False, "error": "Not connected to Discord"}
+        
+        try:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(None, self.sdk.set_mute, True)
+            
+            if result:
+                decky.logger.info("Successfully muted microphone")
+                self.voice_state = self.sdk.get_voice_state()
+                return {
+                    "success": True,
+                    "message": "Microphone muted",
+                    "voice_state": self.voice_state
+                }
+            else:
+                error = self.sdk.get_last_error()
+                return {"success": False, "error": error or "Failed to mute"}
+                
+        except Exception as e:
+            decky.logger.error(f"Error muting voice: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def unmute_voice(self) -> Dict[str, any]:
+        """Unmute local microphone in Discord."""
+        if not self.connected or not self.sdk:
+            return {"success": False, "error": "Not connected to Discord"}
+        
+        try:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(None, self.sdk.set_mute, False)
+            
+            if result:
+                decky.logger.info("Successfully unmuted microphone")
+                self.voice_state = self.sdk.get_voice_state()
+                return {
+                    "success": True,
+                    "message": "Microphone unmuted",
+                    "voice_state": self.voice_state
+                }
+            else:
+                error = self.sdk.get_last_error()
+                return {"success": False, "error": error or "Failed to unmute"}
+                
+        except Exception as e:
+            decky.logger.error(f"Error unmuting voice: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def toggle_deafen(self) -> Dict[str, any]:
+        """Toggle deafen (mute speakers) in Discord."""
+        if not self.connected or not self.sdk:
+            return {"success": False, "error": "Not connected to Discord"}
+        
+        try:
+            # Get current voice state to determine toggle action
+            current_state = self.sdk.get_voice_state()
+            new_deafen_state = not current_state.get("is_deafened", False) if current_state else True
+            
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(None, self.sdk.set_deafen, new_deafen_state)
+            
+            if result:
+                action = "deafened" if new_deafen_state else "undeafened"
+                decky.logger.info(f"Successfully {action} audio")
+                self.voice_state = self.sdk.get_voice_state()
+                return {
+                    "success": True,
+                    "message": f"Audio {action}",
+                    "voice_state": self.voice_state
+                }
+            else:
+                error = self.sdk.get_last_error()
+                return {"success": False, "error": error or "Failed to toggle deafen"}
+                
+        except Exception as e:
+            decky.logger.error(f"Error toggling deafen: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def test_rpc_commands(self) -> Dict[str, any]:
+        """Test various RPC commands to see what works without full OAuth."""
+        if not self.connected or not self.rpc:
+            return {"success": False, "error": "Not connected to Discord"}
+        
+        test_results = {}
+        
+        try:
+            loop = asyncio.get_event_loop()
+            
+            def test_commands():
+                results = {}
+                
+                # Test 1: Get current user (basic info)
+                try:
+                    user_request = {"cmd": "GET_CURRENT_USER", "args": {}, "nonce": "test-user"}
+                    self.rpc._send_data(1, user_request)
+                    op, data = self.rpc._recv_data()
+                    if op == 1:
+                        response = json.loads(data.decode('utf-8'))
+                        results["GET_CURRENT_USER"] = response
+                except Exception as e:
+                    results["GET_CURRENT_USER"] = {"error": str(e)}
+                
+                # Test 2: Try to get voice settings (might work even without OAuth)
+                try:
+                    voice_request = {"cmd": "GET_VOICE_SETTINGS", "args": {}, "nonce": "test-voice"}
+                    self.rpc._send_data(1, voice_request)
+                    op, data = self.rpc._recv_data()
+                    if op == 1:
+                        response = json.loads(data.decode('utf-8'))
+                        results["GET_VOICE_SETTINGS"] = response
+                except Exception as e:
+                    results["GET_VOICE_SETTINGS"] = {"error": str(e)}
+                
+                # Test 3: Try SELECT_VOICE_CHANNEL with a known format
+                try:
+                    # This would normally require a real channel ID, but let's see the error response
+                    select_request = {
+                        "cmd": "SELECT_VOICE_CHANNEL", 
+                        "args": {"channel_id": None, "force": False}, 
+                        "nonce": "test-select"
+                    }
+                    self.rpc._send_data(1, select_request)
+                    op, data = self.rpc._recv_data()
+                    if op == 1:
+                        response = json.loads(data.decode('utf-8'))
+                        results["SELECT_VOICE_CHANNEL"] = response
+                except Exception as e:
+                    results["SELECT_VOICE_CHANNEL"] = {"error": str(e)}
+                
+                return results
+            
+            test_results = await loop.run_in_executor(None, test_commands)
+            
+            decky.logger.info(f"RPC Command Test Results: {test_results}")
+            
+            return {
+                "success": True,
+                "test_results": test_results,
+                "summary": "Check logs for detailed results"
+            }
+            
+        except Exception as e:
+            decky.logger.error(f"Error testing RPC commands: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def _main(self):
+        self.loop = asyncio.get_event_loop()
+        decky.logger.info("Discord RPC Plugin loaded")
+        
+        # Attempt initial connection
+        if DISCORD_RPC_AVAILABLE:
+            await self.connect_to_discord()
+
+    async def _unload(self):
+        decky.logger.info("Discord RPC Plugin unloading")
+        await self.disconnect_from_discord()
+
+    async def _uninstall(self):
+        decky.logger.info("Discord RPC Plugin uninstalled")
+        await self.disconnect_from_discord()
+
+    # Event callback handlers for Discord Social SDK
+    def _on_lobby_joined(self, lobby_id: str):
+        """Handle lobby joined event."""
+        decky.logger.info(f"Event: Joined lobby {lobby_id}")
+        self.current_lobbies[lobby_id] = f"Lobby {lobby_id}"
+
+    def _on_lobby_left(self, lobby_id: str):
+        """Handle lobby left event."""
+        decky.logger.info(f"Event: Left lobby {lobby_id}")
+        self.current_lobbies.pop(lobby_id, None)
+
+    def _on_voice_state_changed(self, voice_state: dict):
+        """Handle voice state change event."""
+        self.voice_state = voice_state
+        decky.logger.info(f"Event: Voice state changed - muted: {voice_state.get('is_muted')}, connected: {voice_state.get('is_connected')}")
+
+    def _on_sdk_error(self, error: str):
+        """Handle SDK error event."""
+        decky.logger.error(f"Discord SDK Error: {error}")
+        self.connection_error = error
+
+    # New Social SDK specific methods
+    async def create_lobby(self, name: str, capacity: int = 10) -> Dict[str, any]:
+        """Create a new Discord voice lobby."""
+        if not self.connected or not self.sdk:
+            return {"success": False, "error": "Not connected to Discord"}
+
+        try:
+            loop = asyncio.get_event_loop()
+            lobby_id = await loop.run_in_executor(None, self.sdk.create_lobby, name, capacity)
+
+            if lobby_id:
+                self.current_lobbies[lobby_id] = name
+                decky.logger.info(f"Created lobby: {name} ({lobby_id})")
+                return {
+                    "success": True,
+                    "lobby_id": lobby_id,
+                    "name": name,
+                    "capacity": capacity
+                }
+            else:
+                error = self.sdk.get_last_error()
+                return {"success": False, "error": error or "Failed to create lobby"}
+
+        except Exception as e:
+            decky.logger.error(f"Error creating lobby: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def join_lobby_by_id(self, lobby_id: str) -> Dict[str, any]:
+        """Join an existing lobby by ID."""
+        if not self.connected or not self.sdk:
+            return {"success": False, "error": "Not connected to Discord"}
+
+        try:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(None, self.sdk.join_lobby, lobby_id)
+
+            if result:
+                lobby_info = await loop.run_in_executor(None, self.sdk.get_lobby_info, lobby_id)
+                if lobby_info:
+                    self.current_lobbies[lobby_id] = lobby_info["name"]
+                    return {"success": True, "lobby": lobby_info}
+                else:
+                    return {"success": True, "lobby_id": lobby_id}
+            else:
+                error = self.sdk.get_last_error()
+                return {"success": False, "error": error or "Failed to join lobby"}
+
+        except Exception as e:
+            decky.logger.error(f"Error joining lobby: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def create_lobby_invite(self, lobby_id: str) -> Dict[str, any]:
+        """Create an invite code for a lobby."""
+        if not self.connected or not self.sdk:
+            return {"success": False, "error": "Not connected to Discord"}
+
+        try:
+            loop = asyncio.get_event_loop()
+            invite_code = await loop.run_in_executor(None, self.sdk.create_invite, lobby_id)
+
+            if invite_code:
+                return {
+                    "success": True,
+                    "invite_code": invite_code,
+                    "lobby_id": lobby_id
+                }
+            else:
+                error = self.sdk.get_last_error()
+                return {"success": False, "error": error or "Failed to create invite"}
+
+        except Exception as e:
+            decky.logger.error(f"Error creating invite: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def join_by_invite(self, invite_code: str) -> Dict[str, any]:
+        """Join a lobby using an invite code."""
+        if not self.connected or not self.sdk:
+            return {"success": False, "error": "Not connected to Discord"}
+
+        try:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(None, self.sdk.accept_invite, invite_code)
+
+            if result:
+                return {"success": True, "message": "Successfully joined lobby via invite"}
+            else:
+                error = self.sdk.get_last_error()
+                return {"success": False, "error": error or "Failed to join via invite"}
+
+        except Exception as e:
+            decky.logger.error(f"Error joining by invite: {e}")
+            return {"success": False, "error": str(e)}
