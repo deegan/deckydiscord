@@ -53,45 +53,73 @@ This is the **Discord Social SDK** version of Deckycord, providing reliable voic
 
 ## 🛠️ Installation
 
-### 1. Download Discord Social SDK
+### Quick Setup (Recommended)
 
 ```bash
-# Download Discord Social SDK (replace with actual download link)
-wget https://dl-game-sdk.discordapp.net/3.2.1/discord_game_sdk.zip
-unzip discord_game_sdk.zip -d native/discord_sdk/
+# Run the automated setup script
+./scripts/setup_discord_sdk.sh
 ```
 
-**Note:** You'll need to download the Discord Social SDK from the [Discord Developer Portal](https://discord.com/developers/social-sdk) and extract it to `native/discord_sdk/`.
+This script will:
+- Guide you through Discord SDK download
+- Install build dependencies
+- Build the native module
+- Verify installation
 
-### 2. Install Dependencies
+### Manual Installation
+
+#### 1. Download Discord Social SDK
+
+⚠️ **Important**: Due to Discord's licensing, the SDK cannot be included in our package.
+
+1. Go to [Discord Developer Portal](https://discord.com/developers/social-sdk)
+2. Log in to your Discord account
+3. Download the Discord Social SDK
+4. Extract to `native/discord_sdk/`
+
+Expected structure:
+```
+native/discord_sdk/
+├── include/discord/discord.h
+├── lib/linux/x86_64/libdiscord_game_sdk.so
+└── ...
+```
+
+#### 2. Install Dependencies (Steam Deck)
 
 ```bash
+# Enable write access (Steam Deck only)
+sudo steamos-readonly disable
+
+# Install build tools
+sudo pacman -Sy base-devel cmake python-pip
+
 # Install Python dependencies
-pip install pybind11 numpy
-
-# Install Node.js dependencies  
-pnpm install
+pip install --user pybind11 numpy
 ```
 
-### 3. Build Native Module
+#### 3. Build Native Module
 
 ```bash
-cd native
-./build.sh
+# Make build script executable
+chmod +x native/build.sh
+
+# Build the Discord SDK wrapper
+cd native && ./build.sh
 ```
 
-This builds the C++ Discord SDK wrapper and Python bindings.
-
-### 4. Build Frontend
+#### 4. Verify Installation
 
 ```bash
-pnpm run build
+# Test that everything works
+python3 test_build.py
 ```
 
-### 5. Quick Build (All Steps)
+#### 5. Restart Decky Loader
 
 ```bash
-make all
+# Restart to load the new native module
+sudo systemctl restart plugin_loader
 ```
 
 ## 🔧 Development
