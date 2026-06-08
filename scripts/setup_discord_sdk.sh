@@ -39,7 +39,7 @@ echo "=============================="
 echo ""
 
 # Check if Discord SDK already exists
-if [[ -f "native/discord_sdk/include/discord/discord.h" ]]; then
+if [[ -f "native/discord_sdk/include/discordpp.h" ]]; then
     success "Discord SDK already installed!"
     
     # Check if native module is built
@@ -72,8 +72,9 @@ else
     echo ""
     echo "   The structure should look like:"
     echo "   native/discord_sdk/"
-    echo "   ├── include/discord/discord.h"
-    echo "   ├── lib/linux/x86_64/libdiscord_game_sdk.so"
+    echo "   ├── include/discordpp.h"
+    echo "   ├── include/cdiscord.h"
+    echo "   ├── lib/release/libdiscord_partner_sdk.so"
     echo "   └── ..."
     echo ""
     
@@ -85,9 +86,10 @@ else
     fi
     
     # Verify SDK was installed
-    if [[ ! -f "native/discord_sdk/include/discord/discord.h" ]]; then
+    if [[ ! -f "native/discord_sdk/include/discordpp.h" ]]; then
         error "Discord SDK still not found at native/discord_sdk/"
         error "Please ensure you extracted the SDK to the correct location"
+        error "Looking for: native/discord_sdk/include/discordpp.h"
         exit 1
     fi
     

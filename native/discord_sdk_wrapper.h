@@ -7,14 +7,12 @@
 #include <memory>
 #include <unordered_map>
 
-// Forward declare Discord SDK types
-namespace discord {
-    class Core;
-    class Lobby;
-    class VoiceCall;
-    struct LobbyInfo;
-    struct User;
-}
+// Forward declare Discord Social SDK types
+// Note: Discord Social SDK uses different structure than Game SDK
+// These will be properly included from discordpp.h and cdiscord.h
+struct IDiscordCore;
+struct IDiscordLobbyManager;
+struct IDiscordVoiceManager;
 
 // C++ wrapper for Discord Social SDK functionality
 class DiscordSDKWrapper {
@@ -110,7 +108,7 @@ public:
 
 private:
     // Internal implementation
-    std::unique_ptr<discord::Core> core_;
+    struct IDiscordCore* core_;
     std::string client_id_;
     std::string last_error_;
     bool initialized_;

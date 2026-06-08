@@ -1,5 +1,6 @@
 #include "discord_sdk_wrapper.h"
-#include <discord/discord.h>
+#include <discordpp.h>
+#include <cdiscord.h>
 #include <iostream>
 #include <chrono>
 #include <thread>
@@ -23,57 +24,45 @@ bool DiscordSDKWrapper::Initialize() {
         return true;
     }
 
+#ifdef DISCORD_SDK_STUB
+    // Stub implementation when Discord SDK is not available
+    SetError("Discord SDK not linked - stub mode");
+    return false;
+#else
     try {
+        // TODO: Replace with actual Discord Social SDK initialization
+        // The exact API calls depend on the Discord Social SDK documentation
+        // which needs to be referenced once the SDK is properly installed
+        
         // Parse client ID
         int64_t client_id_num = std::stoll(client_id_);
         
-        // Create Discord core with necessary features
-        discord::CreateParams params{};
-        params.client_id = client_id_num;
-        params.flags = discord::CreateFlags::Default;
-
-        auto result = discord::Core::Create(params, &core_);
-        if (result != discord::Result::Ok) {
-            SetError("Failed to create Discord Core: " + std::to_string(static_cast<int>(result)));
+        // Initialize Discord Social SDK core
+        // This is a placeholder - actual implementation needs Discord Social SDK API
+        SetError("Discord Social SDK integration needs implementation with actual SDK");
+        return false;
+        
+        // Example of what the actual implementation might look like:
+        /*
+        // Initialize Discord Social SDK
+        auto result = DiscordCreate(client_id_num, &core_);
+        if (result != DISCORD_RESULT_OK) {
+            SetError("Failed to create Discord Core");
             return false;
         }
-
-        // Set up event handlers
-        auto& lobby_manager = core_->LobbyManager();
-        lobby_manager.OnLobbyUpdate.Connect([this](int64_t lobby_id) {
-            UpdateLobbyCache();
-        });
-
-        lobby_manager.OnMemberUpdate.Connect([this](int64_t lobby_id, int64_t user_id) {
-            UpdateLobbyCache();
-        });
-
-        auto& voice_manager = core_->VoiceManager();
-        voice_manager.OnSettingsUpdate.Connect([this]() {
-            UpdateVoiceState();
-            if (on_voice_state_changed_) {
-                on_voice_state_changed_(current_voice_state_);
-            }
-        });
-
-        // Get current user info
-        auto& user_manager = core_->UserManager();
-        user_manager.GetCurrentUser([this](discord::Result result, discord::User const& user) {
-            if (result == discord::Result::Ok) {
-                current_user_.id = std::to_string(user.GetId());
-                current_user_.username = user.GetUsername();
-                current_user_.discriminator = user.GetDiscriminator();
-                current_user_.avatar = user.GetAvatar();
-            }
-        });
-
+        
+        // Set up event handlers for lobby and voice events
+        // Configure callbacks for lobby updates, member changes, voice state
+        
         initialized_ = true;
         return true;
+        */
     }
     catch (const std::exception& e) {
         SetError("Exception during initialization: " + std::string(e.what()));
         return false;
     }
+#endif
 }
 
 void DiscordSDKWrapper::Shutdown() {

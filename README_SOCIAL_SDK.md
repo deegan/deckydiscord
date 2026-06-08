@@ -80,8 +80,9 @@ This script will:
 Expected structure:
 ```
 native/discord_sdk/
-├── include/discord/discord.h
-├── lib/linux/x86_64/libdiscord_game_sdk.so
+├── include/discordpp.h
+├── include/cdiscord.h  
+├── lib/release/libdiscord_partner_sdk.so
 └── ...
 ```
 
