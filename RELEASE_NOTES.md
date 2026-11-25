@@ -2,8 +2,6 @@
 > install. Download the zip below and use Decky → Settings → Developer → Install
 > Plugin from ZIP.
 
-- Rewritten around a background Vesktop client: QR login, server and voice
-  channel browsing, join and leave, mute and deafen.
-- Recovers when Discord gets stuck on a blank page after a QR login.
-- New updater: checks GitHub for releases and installs through Decky, with
-  SHA-256 verification.
+- Removes the plugin's `debug` flag, which let Decky reload it repeatedly during
+  an update and could leave two copies running. If you updated to 0.4.1 from
+  inside the plugin, restart your Deck once after this update.
