@@ -6,8 +6,6 @@ on:
     tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
-  release:
-    types: [created]
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -62,6 +60,20 @@ jobs:
         cd release
         zip -r Deckycord-${{ steps.get_version.outputs.version }}.zip Deckycord/
         
+    - name: Create update manifest
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |
+        TAG=${GITHUB_REF#refs/tags/}
+        VERSION=${TAG#v}
+        for f in package.json plugin.json; do
+          [ "$(jq -r .version $f)" = "$VERSION" ] || { echo "$f version does not match $TAG" >&2; exit 1; }
+        done
+        jq -n --arg version "$VERSION" \
+          --arg artifact "https://github.com/${{ github.repository }}/releases/download/$TAG/Deckycord-$TAG.zip" \
+          --arg sha256 "$(sha256sum release/Deckycord-$TAG.zip | cut -d' ' -f1)" \
+          '{version: $version, artifact: $artifact, sha256: $sha256}' > release/manifest.json
+        cat release/manifest.json
+
     - name: Upload build artifacts
       uses: actions/upload-artifact@v5
       with:
@@ -69,7 +81,10 @@ jobs:
         path: release/Deckycord-${{ steps.get_version.outputs.version }}.zip
         
     - name: Upload to release (if tagged)
-      if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
+      if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v2
       with:
-        files: release/Deckycord-${{ steps.get_version.outputs.version }}.zip
+        body_path: RELEASE_NOTES.md
+        files: |
+          release/Deckycord-${{ steps.get_version.outputs.version }}.zip
+          release/manifest.json

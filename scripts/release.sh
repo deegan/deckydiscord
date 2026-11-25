@@ -7,6 +7,8 @@ set -euo pipefail
 VERSION=${1:?usage: $0 x.y.z}
 [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version must be x.y.z" >&2; exit 1; }
 TAG="v$VERSION"
+[[ -z $(git status --porcelain) ]] || { echo "working tree is not clean; commit or stash first" >&2; exit 1; }
+[[ $(git branch --show-current) == main ]] || { echo "release from main" >&2; exit 1; }
 git rev-parse "$TAG" >/dev/null 2>&1 && { echo "tag $TAG already exists" >&2; exit 1; }
 
 jq ".version = \"$VERSION\"" package.json > package.json.tmp && mv package.json.tmp package.json
@@ -18,7 +20,7 @@ npx -y pnpm@9 run build
 python3 -m py_compile main.py py_modules/*.py
 
 git add package.json plugin.json
-git commit -m "Release $TAG"
+git diff --cached --quiet || git commit -m "Release $TAG"
 git tag -a "$TAG" -m "Deckycord $TAG"
 
 read -p "Push main and $TAG to origin? (y/N) " -n 1 -r; echo

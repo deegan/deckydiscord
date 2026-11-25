@@ -50,6 +50,14 @@ few minutes and needs a network connection. Then open Deckycord in the Quick
 Access Menu and scan the QR code. On your phone, open Discord → Settings → Scan
 QR Code. Your login is kept across reboots.
 
+### Updates
+
+Deckycord checks the `manifest.json` attached to the latest GitHub release. When
+there is a newer version, use the update button at the bottom of the panel.
+Decky's installer downloads the zip, verifies its SHA-256 and replaces the
+plugin. Your Discord login is kept. Versions before 0.4.1 need one manual ZIP
+install first.
+
 ### Notes
 
 - **Don't run Deckycord and Steamcord together.** Both run their own copy of
@@ -70,7 +78,8 @@ npx pnpm@9 run build
 ```
 
 To release, run `./scripts/release.sh 0.4.1`. It bumps the version, builds,
-tags, and pushes. CI then attaches the zip to the GitHub release.
+tags, and pushes. CI then attaches the zip and its `manifest.json` to the GitHub
+release.
 
 ## Credits
 

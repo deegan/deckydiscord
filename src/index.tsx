@@ -60,6 +60,21 @@ interface ActionResult {
   result?: unknown;
 }
 
+interface UpdateInfo {
+  ok: boolean;
+  current: string;
+  latest?: string;
+  available?: boolean;
+  artifact?: string;
+  sha256?: string;
+  error?: string;
+}
+
+// Decky's own backend (not part of @decky/api): asks the user, then downloads,
+// verifies the hash and replaces the plugin as root.
+declare const DeckyBackend: { call: (route: string, ...args: unknown[]) => Promise<unknown> };
+const INSTALL_TYPE_UPDATE = 2;
+
 const getState = callable<[], State>("get_state");
 const getGuilds = callable<[], { ok: boolean; guilds?: Guild[]; error?: string }>("get_guilds");
 const joinVoice = callable<[string, string], ActionResult>("join_voice");
@@ -67,6 +82,7 @@ const leaveVoice = callable<[], ActionResult>("leave_voice");
 const toggleMute = callable<[], ActionResult>("toggle_mute");
 const toggleDeafen = callable<[], ActionResult>("toggle_deafen");
 const logout = callable<[], ActionResult>("logout");
+const checkUpdate = callable<[boolean], UpdateInfo>("check_update");
 const restartDiscord = callable<[], ActionResult>("restart_discord");
 
 // Decky unmounts the panel whenever Quick Access closes, so keep view state at
@@ -270,6 +286,62 @@ function ServersView({ inCall }: { inCall: string | null }) {
   );
 }
 
+function UpdateView() {
+  const [info, setInfo] = useState<UpdateInfo | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const check = async (force: boolean) => {
+    setBusy(true);
+    try {
+      setInfo(await checkUpdate(force));
+    } catch (e) {
+      toaster.toast({ title: "Update check failed", body: String(e) });
+    }
+    setBusy(false);
+  };
+  useEffect(() => {
+    check(false);
+  }, []);
+
+  const install = async () => {
+    try {
+      await DeckyBackend.call(
+        "utilities/install_plugin",
+        info!.artifact,
+        "Deckycord",
+        info!.latest,
+        info!.sha256,
+        INSTALL_TYPE_UPDATE,
+      );
+    } catch (e) {
+      toaster.toast({ title: "Could not start the update", body: String(e) });
+    }
+  };
+
+  const available = !!info?.ok && !!info.available;
+  const status = !info ? undefined
+    : !info.ok ? `Check failed: ${info.error}`
+    : available ? "Updating ends any active call."
+    : "Up to date";
+  return (
+    <PanelSection title="Updates">
+      <PanelSectionRow>
+        <Field label="Installed" bottomSeparator="none">{info ? `v${info.current}` : "…"}</Field>
+      </PanelSectionRow>
+      <PanelSectionRow>
+        <ButtonItem
+          layout="below"
+          disabled={busy}
+          description={status}
+          onClick={() => (available ? install() : check(true))}
+        >
+          {busy ? "Checking…" : available ? `Update to v${info!.latest}` : "Check for updates"}
+        </ButtonItem>
+      </PanelSectionRow>
+    </PanelSection>
+  );
+}
+
 function Content() {
   const [state, setState] = useState<State>(lastState);
 
@@ -294,8 +366,8 @@ function Content() {
     };
   }, []);
 
-  if (state.phase === "login") return <LoginView state={state} />;
-  if (state.phase !== "ready") return <StatusView state={state} />;
+  if (state.phase === "login") return <><LoginView state={state} /><UpdateView /></>;
+  if (state.phase !== "ready") return <><StatusView state={state} /><UpdateView /></>;
 
   return (
     <>
@@ -338,6 +410,7 @@ function Content() {
           </ButtonItem>
         </PanelSectionRow>
       </PanelSection>
+      <UpdateView />
     </>
   );
 }

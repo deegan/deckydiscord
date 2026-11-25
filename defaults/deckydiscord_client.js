@@ -3,7 +3,7 @@
 // Vesktop ships Vencord, so Discord's internal stores are reachable through
 // Vencord.Webpack. Store usage follows Steamcord (BSD-3-Clause).
 (() => {
-    const VERSION = 1;
+    const VERSION = 2;
     if (window.DECKYDISCORD && window.DECKYDISCORD.version === VERSION) return;
 
     const wp = () => (window.Vencord && window.Vencord.Webpack) || null;
@@ -100,13 +100,24 @@
         return names.join(", ") || "Direct call";
     };
 
+    // Logged in, but Discord never left the (now blank) login page.
+    const loginStuck = () => {
+        try {
+            return location.pathname.startsWith("/login")
+                && !!store("AuthenticationStore")?.isAuthenticated?.()
+                && !common().UserStore?.getCurrentUser?.();
+        } catch (_) { return false; }
+    };
+
     const api = {
         version: VERSION,
+        loginStuck,
 
         state() {
             const US = common().UserStore;
             if (!wp() || !US || typeof US.getCurrentUser !== "function") return { phase: "loading" };
             const me = US.getCurrentUser();
+            if (!me && loginStuck()) return { phase: "loading", message: "Logging in…" };
             if (!me) {
                 return { phase: "login", qr: findQR(), captcha: captchaVisible(),
                          scanned: !!document.querySelector('img[src*="avatars"]') };

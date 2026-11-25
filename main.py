@@ -7,10 +7,12 @@ py_modules/dd_vesktop.py for why the RPC socket approach could not work.
 
 import asyncio
 import json
+import time
 from pathlib import Path
 
 import decky  # type: ignore
 
+import dd_update as update
 import dd_vesktop as vesktop
 from dd_cdp import Page, CDPError, list_targets
 
@@ -38,6 +40,10 @@ class Plugin:
     supervisor = None
     wake = None              # asyncio.Event: retry now
     lock = None
+    login_stuck_since = None # when the page was first seen stuck after login
+    login_reloaded_at = None # last reload done to recover from that
+    update_info = None       # last successful update check
+    update_checked_at = 0.0
 
     # ── supervisor ──────────────────────────────────────────────────────────
 
@@ -114,7 +120,7 @@ class Plugin:
                     cls._set("running")
                     backoff = 5
                 # health check: a dead page stops answering
-                await cls.page.evaluate("1", timeout=5)
+                await cls._recover_login()
                 await cls._sleep(5)
             except asyncio.CancelledError:
                 raise
@@ -127,6 +133,26 @@ class Plugin:
                     cls._set("starting", "Reconnecting to Discord…")
                 await cls._sleep(backoff)
                 backoff = min(backoff * 2, 60)
+
+    @classmethod
+    async def _recover_login(cls):
+        """After a QR login, Discord can stay on a blank /login page in a hidden
+        window even though it is authenticated. Reloading resumes the login."""
+        stuck = await cls.page.evaluate("!!window.DECKYDISCORD?.loginStuck?.()", timeout=5)
+        now = time.monotonic()
+        if not stuck:
+            cls.login_stuck_since = None
+            return
+        if cls.login_stuck_since is None:
+            cls.login_stuck_since = now
+        if now - cls.login_stuck_since < 4:
+            return
+        if cls.login_reloaded_at is not None and now - cls.login_reloaded_at < 60:
+            return
+        logger.info("[login] authenticated but stuck on the login page; reloading")
+        cls.login_reloaded_at = now
+        cls.login_stuck_since = None
+        await cls.page.send("Page.reload")
 
     @classmethod
     async def _sleep(cls, seconds):
@@ -180,6 +206,18 @@ class Plugin:
 
     async def logout(self):
         return await Plugin._action("logout")
+
+    async def check_update(self, force: bool = False):
+        now = time.monotonic()
+        if Plugin.update_info and not force and now - Plugin.update_checked_at < 3600:
+            return Plugin.update_info
+        try:
+            info = await update.check(decky.DECKY_PLUGIN_VERSION)
+        except Exception as e:
+            logger.warning(f"[update] {e!r}")
+            return {"ok": False, "current": decky.DECKY_PLUGIN_VERSION, "error": str(e)}
+        Plugin.update_info, Plugin.update_checked_at = info, now
+        return info
 
     async def restart_discord(self):
         logger.info("[vesktop] restart requested")
