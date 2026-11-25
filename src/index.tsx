@@ -1,1147 +1,350 @@
 import {
   ButtonItem,
+  Field,
   PanelSection,
   PanelSectionRow,
   staticClasses,
-  Field,
-  Focusable
 } from "@decky/ui";
+import { callable, definePlugin, toaster } from "@decky/api";
+import { useEffect, useState } from "react";
 import {
-  addEventListener,
-  removeEventListener,
-  callable,
-  definePlugin,
-  toaster
-} from "@decky/api"
-import { useState, useEffect } from "react";
-import { FaDiscord, FaServer, FaExclamationTriangle } from "react-icons/fa";
+  FaDiscord,
+  FaMicrophone,
+  FaMicrophoneSlash,
+  FaHeadphones,
+  FaPhoneSlash,
+  FaVolumeUp,
+  FaChevronLeft,
+} from "react-icons/fa";
 
-interface ConnectionStatus {
-  connected: boolean;
-  error?: string;
-  discord_sdk_available: boolean;
+interface Member {
+  id: string;
+  name: string;
+  avatar: string | null;
+  muted: boolean;
+  deafened: boolean;
+  speaking?: boolean;
+  streaming?: boolean;
+}
+
+interface VoiceState {
+  channelId: string;
+  channelName: string;
+  guildId: string | null;
+  guildName: string | null;
+  members: Member[];
+}
+
+interface State {
+  phase: string; // loading | login | ready | starting | installing | error | no_backend | conflict
+  message?: string;
+  qr?: string | null;
+  captcha?: boolean;
+  scanned?: boolean;
+  user?: { id: string; name: string; username: string; avatar: string | null };
+  muted?: boolean;
+  deafened?: boolean;
+  voice?: VoiceState | null;
 }
 
 interface Guild {
   id: string;
   name: string;
-  icon?: string;
-  favorite?: boolean;
-  configurable?: boolean;
+  icon: string | null;
+  channels: { id: string; name: string; members: Member[] }[];
 }
 
-interface VoiceChannel {
-  id: string;
-  name: string;
-  user_limit: number;
-  position: number;
-}
-
-interface GuildsResponse {
-  success: boolean;
-  guilds?: Guild[];
+interface ActionResult {
+  ok: boolean;
   error?: string;
+  result?: unknown;
 }
 
-const getConnectionStatus = callable<[], ConnectionStatus>("get_connection_status");
-const connectToDiscord = callable<[], ConnectionStatus>("connect_to_discord");
-const disconnectFromDiscord = callable<[], ConnectionStatus>("disconnect_from_discord");
-const getGuilds = callable<[], GuildsResponse>("get_guilds");
-const debugDiscordConnection = callable<[], any>("debug_discord_connection");
-const checkForUpdates = callable<[], any>("check_for_updates");
-const updatePlugin = callable<[], any>("update_plugin");
-const getServers = callable<[], any>("get_servers");
-const addServer = callable<[string], any>("add_server");
-const removeServer = callable<[string], any>("remove_server");
-const toggleFavorite = callable<[string], any>("toggle_favorite");
-const getVoiceChannels = callable<[string], any>("get_voice_channels");
-const joinVoiceChannel = callable<[string, string], any>("join_voice_channel");
-const leaveVoiceChannel = callable<[string], any>("leave_voice_channel");
-const discoverDiscordServers = callable<[], any>("discover_discord_servers");
-const getOAuthUrl = callable<[], any>("get_oauth_url");
-const muteVoice = callable<[], any>("mute_voice");
-const unmuteVoice = callable<[], any>("unmute_voice");
-const toggleDeafen = callable<[], any>("toggle_deafen");
-const testRpcCommands = callable<[], any>("test_rpc_commands");
+const getState = callable<[], State>("get_state");
+const getGuilds = callable<[], { ok: boolean; guilds?: Guild[]; error?: string }>("get_guilds");
+const joinVoice = callable<[string, string], ActionResult>("join_voice");
+const leaveVoice = callable<[], ActionResult>("leave_voice");
+const toggleMute = callable<[], ActionResult>("toggle_mute");
+const toggleDeafen = callable<[], ActionResult>("toggle_deafen");
+const logout = callable<[], ActionResult>("logout");
+const restartDiscord = callable<[], ActionResult>("restart_discord");
 
-// New Discord Social SDK methods
-const createLobby = callable<[string, number], any>("create_lobby");
-const joinLobbyById = callable<[string], any>("join_lobby_by_id");
-const createLobbyInvite = callable<[string], any>("create_lobby_invite");
-const joinByInvite = callable<[string], any>("join_by_invite");
+// Decky unmounts the panel whenever Quick Access closes, so keep view state at
+// module level to reopen where the user left off.
+let lastState: State = { phase: "starting", message: "Connecting…" };
+let lastGuilds: Guild[] = [];
+let openGuildId: string | null = null;
 
-function Content() {
-  const [status, setStatus] = useState<ConnectionStatus>({ connected: false, discord_sdk_available: false });
-  const [guilds, setGuilds] = useState<Guild[]>([]);
-  const [favorites, setFavorites] = useState<Guild[]>([]);
-  const [servers, setServers] = useState<Guild[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [updateInfo, setUpdateInfo] = useState<any>(null);
-  const [showAddServer, setShowAddServer] = useState(false);
-  const [newServerName, setNewServerName] = useState("");
-  const [expandedServer, setExpandedServer] = useState<string | null>(null);
-  const [voiceChannels, setVoiceChannels] = useState<{[serverId: string]: VoiceChannel[]}>({});
-  const [discoveredServers, setDiscoveredServers] = useState<any[]>([]);
-  const [showDiscovery, setShowDiscovery] = useState(false);
-  const [showCreateLobby, setShowCreateLobby] = useState(false);
-  const [newLobbyName, setNewLobbyName] = useState("");
-  const [newLobbyCapacity, setNewLobbyCapacity] = useState(10);
-  const [showJoinLobby, setShowJoinLobby] = useState(false);
-  const [joinLobbyCode, setJoinLobbyCode] = useState("");
+async function run(action: () => Promise<ActionResult>, failTitle: string) {
+  try {
+    const r = await action();
+    if (!r.ok) toaster.toast({ title: failTitle, body: r.error || "Unknown error" });
+  } catch (e) {
+    toaster.toast({ title: failTitle, body: String(e) });
+  }
+}
 
-  useEffect(() => {
-    loadStatus();
-    checkUpdates();
-  }, []);
+const Avatar = ({ src, size = 24, ring = false }: { src: string | null; size?: number; ring?: boolean }) =>
+  src ? (
+    <img
+      src={src}
+      style={{
+        width: size,
+        height: size,
+        borderRadius: "50%",
+        flexShrink: 0,
+        boxShadow: ring ? "0 0 0 2px #23a55a" : undefined,
+      }}
+    />
+  ) : (
+    <FaDiscord size={size} style={{ flexShrink: 0 }} />
+  );
 
-  const loadStatus = async () => {
-    try {
-      const connectionStatus = await getConnectionStatus();
-      setStatus(connectionStatus);
-      
-      if (connectionStatus.connected) {
-        await loadGuilds();
-      }
-    } catch (error) {
-      console.error("Failed to get connection status:", error);
-    }
-  };
+const MemberRow = ({ m }: { m: Member }) => (
+  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "2px 0" }}>
+    <Avatar src={m.avatar} ring={m.speaking} />
+    <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</span>
+    {m.streaming && <span style={{ color: "#f23f43", fontSize: 10, fontWeight: 700 }}>LIVE</span>}
+    {m.deafened ? <FaHeadphones color="#f23f43" /> : m.muted ? <FaMicrophoneSlash color="#f23f43" /> : null}
+  </div>
+);
 
-  const loadGuilds = async () => {
-    try {
-      const response = await getServers();
-      console.log("Server response:", response); // Debug log
-      
-      if (response.success) {
-        // Handle new response format with favorites and servers arrays
-        const favs = response.favorites || [];
-        const regs = response.servers || [];
-        
-        setFavorites(favs);
-        setServers(regs);
-        setGuilds([...favs, ...regs]); // Keep legacy guilds for compatibility
-      } else {
-        toaster.toast({
-          title: "Failed to load servers",
-          body: response.error || "Unknown error"
-        });
-      }
-    } catch (error) {
-      console.error("Failed to load servers:", error);
-      toaster.toast({
-        title: "Failed to load servers",
-        body: "Network error"
-      });
-    }
-  };
-
-  const handleConnect = async () => {
-    setLoading(true);
-    try {
-      const result = await connectToDiscord();
-      setStatus(result);
-      
-      if (result.connected) {
-        await loadGuilds();
-        toaster.toast({
-          title: "Connected to Discord",
-          body: "Successfully connected to Discord RPC"
-        });
-      } else {
-        toaster.toast({
-          title: "Connection failed",
-          body: result.error || "Failed to connect to Discord"
-        });
-      }
-    } catch (error) {
-      console.error("Connection error:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDisconnect = async () => {
-    try {
-      const result = await disconnectFromDiscord();
-      setStatus(result);
-      setGuilds([]);
-      toaster.toast({
-        title: "Disconnected",
-        body: "Disconnected from Discord RPC"
-      });
-    } catch (error) {
-      console.error("Disconnect error:", error);
-    }
-  };
-
-  const handleDebug = async () => {
-    try {
-      const result = await debugDiscordConnection();
-      toaster.toast({
-        title: result.socket_found ? "Debug: Socket Found!" : "Debug: No Socket",
-        body: result.message
-      });
-      console.log("Discord Debug Result:", result);
-    } catch (error) {
-      console.error("Debug error:", error);
-      toaster.toast({
-        title: "Debug Failed",
-        body: "Check console for details"
-      });
-    }
-  };
-
-  const checkUpdates = async () => {
-    try {
-      const result = await checkForUpdates();
-      setUpdateInfo(result);
-    } catch (error) {
-      console.error("Update check failed:", error);
-    }
-  };
-
-  const handleUpdate = async () => {
-    try {
-      setLoading(true);
-      const result = await updatePlugin();
-      
-      if (result.success) {
-        toaster.toast({
-          title: "Update Successful!",
-          body: result.message || "Update completed successfully"
-        });
-        await checkUpdates();
-      } else {
-        // Show manual download option
-        toaster.toast({
-          title: "Auto-Update Failed",
-          body: "Please download manually from GitHub releases"
-        });
-        
-        if (updateInfo?.release_url) {
-          // Could open browser to release page if supported
-          console.log("Manual download:", updateInfo.release_url);
-        }
-      }
-    } catch (error) {
-      console.error("Update error:", error);
-      toaster.toast({
-        title: "Update Error", 
-        body: "Auto-update failed. Please download manually from GitHub."
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleServerClick = async (serverId: string) => {
-    console.log("Frontend: Expanding server for voice channels:", serverId);
-    
-    if (expandedServer === serverId) {
-      // Collapse if already expanded
-      console.log("Frontend: Collapsing server");
-      setExpandedServer(null);
-    } else {
-      // Expand and load voice channels
-      console.log("Frontend: Loading voice channels...");
-      setExpandedServer(serverId);
-      if (!voiceChannels[serverId]) {
-        try {
-          const result = await getVoiceChannels(serverId);
-          console.log("Frontend: Voice channels result:", result);
-          if (result.success) {
-            setVoiceChannels(prev => ({
-              ...prev,
-              [serverId]: result.voice_channels || []
-            }));
-          }
-        } catch (error) {
-          console.error("Failed to load voice channels:", error);
-        }
-      }
-    }
-  };
-
-  const handleJoinVoice = async (channelId: string, serverId: string) => {
-    try {
-      const result = await joinVoiceChannel(channelId, serverId);
-      toaster.toast({
-        title: result.success ? "Joined Voice Channel" : "Join Failed",
-        body: result.message || result.error || result.mock_action || "Unknown result"
-      });
-    } catch (error) {
-      console.error("Failed to join voice channel:", error);
-    }
-  };
-
-  const handleLeaveVoice = async (serverId: string) => {
-    try {
-      const result = await leaveVoiceChannel(serverId);
-      toaster.toast({
-        title: result.success ? "Left Voice Channel" : "Leave Failed", 
-        body: result.message || result.error || result.mock_action || "Unknown result"
-      });
-    } catch (error) {
-      console.error("Failed to leave voice channel:", error);
-    }
-  };
-
-  const handleAddServer = async () => {
-    if (!newServerName.trim()) return;
-    
-    try {
-      const result = await addServer(newServerName.trim());
-      if (result.success) {
-        toaster.toast({
-          title: result.server?.is_lobby ? "Lobby Created" : "Server Added",
-          body: `${result.server?.is_lobby ? 'Created lobby' : 'Added server'} "${newServerName}"`
-        });
-        setNewServerName("");
-        setShowAddServer(false);
-        // Refresh server list
-        await loadGuilds();
-      } else {
-        toaster.toast({
-          title: "Failed to Add Server",
-          body: result.error || "Unknown error"
-        });
-      }
-    } catch (error) {
-      console.error("Failed to add server:", error);
-      toaster.toast({
-        title: "Failed to Add Server",
-        body: "Network error"
-      });
-    }
-  };
-
-  const handleCreateLobby = async () => {
-    if (!newLobbyName.trim()) return;
-    
-    try {
-      const result = await createLobby(newLobbyName.trim(), newLobbyCapacity);
-      if (result.success) {
-        toaster.toast({
-          title: "Lobby Created",
-          body: `Created "${newLobbyName}" with ${newLobbyCapacity} slots`
-        });
-        setNewLobbyName("");
-        setNewLobbyCapacity(10);
-        setShowCreateLobby(false);
-        // Refresh server list
-        await loadGuilds();
-      } else {
-        toaster.toast({
-          title: "Failed to Create Lobby",
-          body: result.error || "Unknown error"
-        });
-      }
-    } catch (error) {
-      console.error("Failed to create lobby:", error);
-      toaster.toast({
-        title: "Failed to Create Lobby",
-        body: "Network error"
-      });
-    }
-  };
-
-  const handleJoinByCode = async () => {
-    if (!joinLobbyCode.trim()) return;
-    
-    try {
-      const result = await joinByInvite(joinLobbyCode.trim());
-      if (result.success) {
-        toaster.toast({
-          title: "Joined Lobby",
-          body: "Successfully joined lobby via invite code"
-        });
-        setJoinLobbyCode("");
-        setShowJoinLobby(false);
-        // Refresh server list
-        await loadGuilds();
-      } else {
-        toaster.toast({
-          title: "Failed to Join Lobby",
-          body: result.error || "Invalid invite code"
-        });
-      }
-    } catch (error) {
-      console.error("Failed to join lobby:", error);
-      toaster.toast({
-        title: "Failed to Join Lobby",
-        body: "Network error"
-      });
-    }
-  };
-
-  const handleCreateInvite = async (serverId: string) => {
-    try {
-      const result = await createLobbyInvite(serverId);
-      if (result.success) {
-        // Copy invite code to clipboard if possible
-        toaster.toast({
-          title: "Invite Created",
-          body: `Invite code: ${result.invite_code}`
-        });
-      } else {
-        toaster.toast({
-          title: "Failed to Create Invite",
-          body: result.error || "Unknown error"
-        });
-      }
-    } catch (error) {
-      console.error("Failed to create invite:", error);
-      toaster.toast({
-        title: "Failed to Create Invite",
-        body: "Network error"
-      });
-    }
-  };
-
-  const toggleServerFavorite = async (serverId: string) => {
-    try {
-      const result = await toggleFavorite(serverId);
-      if (result.success) {
-        await loadGuilds(); // Refresh to show updated favorite status
-        toaster.toast({
-          title: "Updated Favorite",
-          body: "Server favorite status updated"
-        });
-      }
-    } catch (error) {
-      console.error("Failed to toggle favorite:", error);
-    }
-  };
-
-  const removeServerById = async (serverId: string) => {
-    try {
-      const result = await removeServer(serverId);
-      if (result.success) {
-        await loadGuilds(); // Refresh server list
-        toaster.toast({
-          title: "Server Removed",
-          body: "Server removed from your list"
-        });
-      }
-    } catch (error) {
-      console.error("Failed to remove server:", error);
-    }
-  };
-
-  const handleDiscoverServers = async () => {
-    try {
-      setLoading(true);
-      console.log("Frontend: Starting server discovery...");
-      
-      const result = await discoverDiscordServers();
-      console.log("Frontend: Discovery result:", result);
-      
-      if (result.success) {
-        setDiscoveredServers(result.servers || []);
-        setShowDiscovery(true);
-        console.log("Frontend: Set discovered servers:", result.servers);
-        
-        toaster.toast({
-          title: "Server Discovery Complete",
-          body: `Found ${(result.servers || []).length} suggestions to add`
-        });
-      } else {
-        toaster.toast({
-          title: "Discovery Failed",
-          body: result.error || "Could not discover servers"
-        });
-      }
-    } catch (error) {
-      console.error("Failed to discover servers:", error);
-      toaster.toast({
-        title: "Discovery Error",
-        body: "Failed to contact Discord API"
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleAddDiscoveredServer = async (server: any) => {
-    try {
-      const result = await addServer(server.name);
-      if (result.success) {
-        toaster.toast({
-          title: "Server Added",
-          body: `Added "${server.name}" to your servers`
-        });
-        await loadGuilds(); // Refresh server list
-      } else {
-        toaster.toast({
-          title: "Failed to Add Server", 
-          body: result.error || "Unknown error"
-        });
-      }
-    } catch (error) {
-      console.error("Failed to add discovered server:", error);
-      toaster.toast({
-        title: "Add Server Error",
-        body: "Failed to add server"
-      });
-    }
-  };
-
-  const handleGetOAuthHelp = async () => {
-    try {
-      const result = await getOAuthUrl();
-      if (result.success) {
-        setOauthInfo(result);
-        setShowOAuthHelp(true);
-        toaster.toast({
-          title: "OAuth Help Ready",
-          body: "Follow the instructions to authorize Discord access"
-        });
-      } else {
-        toaster.toast({
-          title: "OAuth Help Failed",
-          body: result.error || "Could not generate OAuth URL"
-        });
-      }
-    } catch (error) {
-      console.error("Failed to get OAuth help:", error);
-      toaster.toast({
-        title: "OAuth Help Error",
-        body: "Failed to get authorization help"
-      });
-    }
-  };
-
-  const handleMute = async () => {
-    try {
-      const result = await muteVoice();
-      toaster.toast({
-        title: result.success ? "Microphone Muted" : "Mute Failed",
-        body: result.message || result.error || "Unknown result"
-      });
-    } catch (error) {
-      console.error("Failed to mute:", error);
-      toaster.toast({
-        title: "Mute Error",
-        body: "Failed to mute microphone"
-      });
-    }
-  };
-
-  const handleUnmute = async () => {
-    try {
-      const result = await unmuteVoice();
-      toaster.toast({
-        title: result.success ? "Microphone Unmuted" : "Unmute Failed",
-        body: result.message || result.error || "Unknown result"
-      });
-    } catch (error) {
-      console.error("Failed to unmute:", error);
-      toaster.toast({
-        title: "Unmute Error",
-        body: "Failed to unmute microphone"
-      });
-    }
-  };
-
-  const handleToggleDeafen = async () => {
-    try {
-      const result = await toggleDeafen();
-      toaster.toast({
-        title: result.success ? "Audio Deafened" : "Deafen Failed",
-        body: result.message || result.error || "Unknown result"
-      });
-    } catch (error) {
-      console.error("Failed to toggle deafen:", error);
-      toaster.toast({
-        title: "Deafen Error",
-        body: "Failed to toggle audio deafen"
-      });
-    }
-  };
-
-  const ServerRow = ({ server, isFavorite }: { server: Guild; isFavorite: boolean }) => {
-    const isExpanded = expandedServer === server.id;
-    const serverVoiceChannels = voiceChannels[server.id] || [];
-    const isLobby = (server as any).is_lobby || false;
-    
-    return (
-      <div>
+function StatusView({ state }: { state: State }) {
+  const canRestart = ["error", "starting", "loading"].includes(state.phase);
+  return (
+    <PanelSection title="Discord">
+      <PanelSectionRow>
+        <div style={{ fontSize: 13, lineHeight: 1.4 }}>
+          {state.message || (state.phase === "loading" ? "Discord is loading…" : "Starting…")}
+        </div>
+      </PanelSectionRow>
+      {canRestart && (
         <PanelSectionRow>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "4px" }}>
-            <ButtonItem
-              layout="below"
-              onClick={() => handleServerClick(server.id)}
-              style={{ flex: 1, display: "flex", alignItems: "center", gap: "8px" }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", width: "100%" }}>
-                {isLobby ? (
-                  <span style={{ color: isFavorite ? "#5865F2" : "#7289DA" }}>🎮</span>
-                ) : (
-                  <FaServer style={{ color: isFavorite ? "#5865F2" : "#7289DA" }} />
-                )}
-                <span style={{ flex: 1 }}>{server.name}</span>
-                {isLobby && (server as any).member_count !== undefined && (
-                  <span style={{ fontSize: "0.7em", color: "#888" }}>
-                    {(server as any).member_count}/{(server as any).capacity}
-                  </span>
-                )}
-                <span style={{ fontSize: "0.8em", color: "#888" }}>
-                  {isExpanded ? "▲" : "▼"}
-                </span>
-              </div>
-            </ButtonItem>
-            
-            {!server.configurable && (
-              <div style={{ display: "flex", gap: "4px" }}>
-                {isLobby && (
-                  <ButtonItem
-                    layout="below"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleCreateInvite(server.id);
-                    }}
-                    style={{
-                      fontSize: "0.7em",
-                      padding: "3px 6px",
-                      minWidth: "32px",
-                      color: "#00ff88"
-                    }}
-                  >
-                    📨
-                  </ButtonItem>
-                )}
-                
-                <ButtonItem
-                  layout="below"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleServerFavorite(server.id);
-                  }}
-                  style={{
-                    fontSize: "0.8em",
-                    padding: "4px 8px",
-                    minWidth: "32px",
-                    color: isFavorite ? "#FFD700" : "#888"
-                  }}
-                >
-                  {isFavorite ? "★" : "☆"}
-                </ButtonItem>
-                
-                <ButtonItem
-                  layout="below"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    removeServerById(server.id);
-                  }}
-                  style={{
-                    fontSize: "0.8em",
-                    padding: "4px 8px",
-                    minWidth: "32px",
-                    color: "#ff6b6b"
-                  }}
-                >
-                  ✕
-                </ButtonItem>
-              </div>
-            )}
+          <ButtonItem layout="below" onClick={() => run(restartDiscord, "Restart failed")}>
+            Restart Discord
+          </ButtonItem>
+        </PanelSectionRow>
+      )}
+    </PanelSection>
+  );
+}
+
+function LoginView({ state }: { state: State }) {
+  return (
+    <PanelSection title="Log in to Discord">
+      <PanelSectionRow>
+        <div style={{ fontSize: 13, lineHeight: 1.4 }}>
+          {state.captcha
+            ? "Discord is asking for a CAPTCHA. Log in once from Vesktop in Desktop Mode, then come back."
+            : state.scanned
+              ? "Scanned. Confirm the login on your phone."
+              : "In the Discord mobile app: Settings → Scan QR Code, then scan this code."}
+        </div>
+      </PanelSectionRow>
+      {state.qr && !state.scanned && (
+        <PanelSectionRow>
+          <div style={{ display: "flex", justifyContent: "center", padding: 8 }}>
+            <img src={state.qr} style={{ width: 200, height: 200, background: "#fff", padding: 8, borderRadius: 8 }} />
           </div>
         </PanelSectionRow>
-        
-        {isExpanded && (
-          <div style={{ marginLeft: "20px", borderLeft: "2px solid #444", paddingLeft: "10px" }}>
-            {serverVoiceChannels.length > 0 ? (
-              serverVoiceChannels.map((channel) => (
-                <PanelSectionRow key={channel.id}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "4px 8px" }}>
-                    <span style={{ color: "#888", fontSize: "0.9em" }}>🎙️</span>
-                    <span style={{ flex: 1, fontSize: "0.9em" }}>{channel.name}</span>
-                    {channel.user_limit > 0 && (
-                      <span style={{ fontSize: "0.8em", color: "#888" }}>
-                        (0/{channel.user_limit})
-                      </span>
-                    )}
-                    <ButtonItem
-                      layout="below"
-                      onClick={() => handleJoinVoice(channel.id, server.id)}
-                      style={{ fontSize: "0.8em", padding: "2px 8px" }}
-                    >
-                      Join
-                    </ButtonItem>
-                  </div>
-                </PanelSectionRow>
-              ))
-            ) : (
-              <PanelSectionRow>
-                <div style={{ color: "#888", fontStyle: "italic", fontSize: "0.9em", padding: "4px 8px" }}>
-                  No voice channels found
-                </div>
-              </PanelSectionRow>
-            )}
-            
-            <PanelSectionRow>
-              <ButtonItem
-                layout="below"
-                onClick={() => handleLeaveVoice(server.id)}
-                style={{ fontSize: "0.8em", padding: "2px 8px" }}
-              >
-                Leave Voice Channel
-              </ButtonItem>
-            </PanelSectionRow>
-          </div>
-        )}
-      </div>
-    );
+      )}
+      {!state.qr && !state.scanned && !state.captcha && (
+        <PanelSectionRow>
+          <div style={{ fontSize: 12, opacity: 0.7 }}>Waiting for the QR code…</div>
+        </PanelSectionRow>
+      )}
+    </PanelSection>
+  );
+}
+
+function CallView({ state }: { state: State }) {
+  const v = state.voice!;
+  return (
+    <PanelSection title={v.guildName ? `${v.guildName} · Voice` : "Call"}>
+      <PanelSectionRow>
+        <Field label={<span><FaVolumeUp style={{ marginRight: 6 }} />{v.channelName}</span>} bottomSeparator="none" />
+      </PanelSectionRow>
+      <PanelSectionRow>
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          {v.members.map((m) => <MemberRow key={m.id} m={m} />)}
+        </div>
+      </PanelSectionRow>
+      <PanelSectionRow>
+        <ButtonItem layout="below" onClick={() => run(leaveVoice, "Could not disconnect")}>
+          <FaPhoneSlash style={{ marginRight: 8 }} />Disconnect
+        </ButtonItem>
+      </PanelSectionRow>
+    </PanelSection>
+  );
+}
+
+function ServersView({ inCall }: { inCall: string | null }) {
+  const [guilds, setGuilds] = useState<Guild[]>(lastGuilds);
+  const [openId, setOpenId] = useState<string | null>(openGuildId);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      const r = await getGuilds().catch((e) => ({ ok: false, error: String(e) }) as const);
+      if (!alive) return;
+      if (r.ok && "guilds" in r && r.guilds) {
+        lastGuilds = r.guilds;
+        setGuilds(r.guilds);
+        setError(null);
+      } else {
+        setError(("error" in r && r.error) || "Could not load servers");
+      }
+    };
+    load();
+    const t = setInterval(load, 5000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, []);
+
+  const open = (id: string | null) => {
+    openGuildId = id;
+    setOpenId(id);
   };
+
+  const guild = guilds.find((g) => g.id === openId);
+  if (guild) {
+    return (
+      <PanelSection title={guild.name}>
+        <PanelSectionRow>
+          <ButtonItem layout="below" onClick={() => open(null)}>
+            <FaChevronLeft style={{ marginRight: 8 }} />All servers
+          </ButtonItem>
+        </PanelSectionRow>
+        {guild.channels.length === 0 && (
+          <PanelSectionRow>
+            <div style={{ fontSize: 12, opacity: 0.7 }}>No voice channels you can see.</div>
+          </PanelSectionRow>
+        )}
+        {guild.channels.map((c) => (
+          <PanelSectionRow key={c.id}>
+            <ButtonItem
+              layout="below"
+              disabled={inCall === c.id}
+              onClick={() => run(() => joinVoice(c.id, guild.id), "Could not join")}
+              description={c.members.length ? c.members.map((m) => m.name).join(", ") : undefined}
+            >
+              <FaVolumeUp style={{ marginRight: 8 }} />
+              {c.name}
+              {c.members.length ? ` (${c.members.length})` : ""}
+              {inCall === c.id ? " · connected" : ""}
+            </ButtonItem>
+          </PanelSectionRow>
+        ))}
+      </PanelSection>
+    );
+  }
+
+  return (
+    <PanelSection title="Servers">
+      {error && !guilds.length && (
+        <PanelSectionRow>
+          <div style={{ fontSize: 12, opacity: 0.7 }}>{error}</div>
+        </PanelSectionRow>
+      )}
+      {guilds.map((g) => {
+        const active = g.channels.reduce((n, c) => n + c.members.length, 0);
+        return (
+          <PanelSectionRow key={g.id}>
+            <ButtonItem
+              layout="below"
+              onClick={() => open(g.id)}
+              description={active ? `${active} in voice` : undefined}
+            >
+              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Avatar src={g.icon} size={20} />
+                {g.name}
+              </span>
+            </ButtonItem>
+          </PanelSectionRow>
+        );
+      })}
+    </PanelSection>
+  );
+}
+
+function Content() {
+  const [state, setState] = useState<State>(lastState);
+
+  useEffect(() => {
+    let alive = true;
+    const poll = async () => {
+      try {
+        const s = await getState();
+        if (alive && s) {
+          lastState = s;
+          setState(s);
+        }
+      } catch (e) {
+        if (alive) setState({ phase: "error", message: String(e) });
+      }
+    };
+    poll();
+    const t = setInterval(poll, 1500);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, []);
+
+  if (state.phase === "login") return <LoginView state={state} />;
+  if (state.phase !== "ready") return <StatusView state={state} />;
 
   return (
     <>
-      <PanelSection title="Connection Status">
+      <PanelSection title="Discord">
         <PanelSectionRow>
-          <Field label="Status">
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              {status.connected ? (
-                <>
-                  <FaDiscord style={{ color: "#5865F2" }} />
-                  <span>Connected</span>
-                </>
-              ) : (
-                <>
-                  <FaExclamationTriangle style={{ color: "#FFA500" }} />
-                  <span>Disconnected</span>
-                </>
-              )}
-            </div>
-          </Field>
+          <Field
+            label={
+              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Avatar src={state.user?.avatar ?? null} />
+                {state.user?.name}
+              </span>
+            }
+            bottomSeparator="none"
+          />
         </PanelSectionRow>
-        
-        {!status.discord_sdk_available && (
-          <PanelSectionRow>
-            <div style={{ color: "#FFA500", fontSize: "0.9em" }}>
-              Discord Social SDK not available. Build native module: cd native && ./build.sh
-            </div>
-          </PanelSectionRow>
-        )}
-        
-        {status.error && (
-          <PanelSectionRow>
-            <div style={{ color: "#FF4444", fontSize: "0.9em" }}>
-              Error: {status.error}
-            </div>
-          </PanelSectionRow>
-        )}
-
         <PanelSectionRow>
-          <ButtonItem
-            layout="below"
-            onClick={status.connected ? handleDisconnect : handleConnect}
-            disabled={loading || !status.discord_sdk_available}
-          >
-            {loading ? "Connecting..." : status.connected ? "Disconnect" : "Connect to Discord"}
+          <ButtonItem layout="below" onClick={() => run(toggleMute, "Could not toggle mute")}>
+            {state.muted ? <FaMicrophoneSlash color="#f23f43" style={{ marginRight: 8 }} /> : <FaMicrophone style={{ marginRight: 8 }} />}
+            {state.muted ? "Unmute" : "Mute"}
           </ButtonItem>
         </PanelSectionRow>
-        
         <PanelSectionRow>
-          <ButtonItem
-            layout="below"
-            onClick={handleDebug}
-            disabled={!status.discord_sdk_available}
-          >
-            Debug Discord Connection
-          </ButtonItem>
-        </PanelSectionRow>
-        
-        <PanelSectionRow>
-          <ButtonItem
-            layout="below"
-            onClick={async () => {
-              try {
-                const result = await testRpcCommands();
-                toaster.toast({
-                  title: "RPC Test Complete",
-                  body: result.summary || "Check logs for results"
-                });
-              } catch (error) {
-                toaster.toast({
-                  title: "RPC Test Failed",
-                  body: "Failed to test RPC commands"
-                });
-              }
-            }}
-            disabled={!status.connected}
-          >
-            Test RPC Commands
+          <ButtonItem layout="below" onClick={() => run(toggleDeafen, "Could not toggle deafen")}>
+            <FaHeadphones color={state.deafened ? "#f23f43" : undefined} style={{ marginRight: 8 }} />
+            {state.deafened ? "Undeafen" : "Deafen"}
           </ButtonItem>
         </PanelSectionRow>
       </PanelSection>
-
-      {status.connected && (
-        <PanelSection title="Voice Controls">
-          <PanelSectionRow>
-            <div style={{ display: "flex", gap: "8px" }}>
-              <ButtonItem
-                layout="below"
-                onClick={handleMute}
-                style={{ flex: 1, fontSize: "0.8em", padding: "8px", backgroundColor: "#ff4444" }}
-              >
-                🔇 Mute
-              </ButtonItem>
-              
-              <ButtonItem
-                layout="below"
-                onClick={handleUnmute}
-                style={{ flex: 1, fontSize: "0.8em", padding: "8px", backgroundColor: "#44ff44" }}
-              >
-                🎤 Unmute
-              </ButtonItem>
-            </div>
-          </PanelSectionRow>
-          
-          <PanelSectionRow>
-            <ButtonItem
-              layout="below"
-              onClick={handleToggleDeafen}
-              style={{ fontSize: "0.8em", padding: "8px", backgroundColor: "#4444ff" }}
-            >
-              🔕 Toggle Deafen
-            </ButtonItem>
-          </PanelSectionRow>
-        </PanelSection>
-      )}
-
-      {status.connected && (
-        <>
-          {favorites.length > 0 && (
-            <PanelSection title="⭐ Favorite Servers">
-              {favorites.map((server) => (
-                <ServerRow key={server.id} server={server} isFavorite={true} />
-              ))}
-            </PanelSection>
-          )}
-          
-          {servers.length > 0 && (
-            <PanelSection title="📋 All Servers">
-              {servers.map((server) => (
-                <ServerRow key={server.id} server={server} isFavorite={false} />
-              ))}
-              
-              <PanelSectionRow>
-                <ButtonItem
-                  layout="below"
-                  onClick={loadGuilds}
-                >
-                  Refresh Servers
-                </ButtonItem>
-              </PanelSectionRow>
-            </PanelSection>
-          )}
-          
-          {(favorites.length === 0 && servers.length === 0) && (
-            <PanelSection title="Server Management">
-              <PanelSectionRow>
-                <div style={{ color: "#888", fontStyle: "italic", textAlign: "center", padding: "16px" }}>
-                  No servers configured yet.{"\n"}
-                  Add your Discord servers below!
-                </div>
-              </PanelSectionRow>
-              
-              <PanelSectionRow>
-                <ButtonItem
-                  layout="below"
-                  onClick={loadGuilds}
-                >
-                  Load Default Servers
-                </ButtonItem>
-              </PanelSectionRow>
-            </PanelSection>
-          )}
-          
-          <PanelSection title="Discord Voice Lobbies">
-            {!showCreateLobby ? (
-              <PanelSectionRow>
-                <ButtonItem
-                  layout="below"
-                  onClick={() => setShowCreateLobby(true)}
-                  disabled={loading}
-                >
-                  🎮 Create Voice Lobby
-                </ButtonItem>
-              </PanelSectionRow>
-            ) : (
-              <>
-                <PanelSectionRow>
-                  <Field label="Lobby Name">
-                    <input
-                      type="text"
-                      value={newLobbyName}
-                      onChange={(e) => setNewLobbyName(e.target.value)}
-                      placeholder="My Voice Lobby"
-                      style={{
-                        width: "100%",
-                        padding: "8px",
-                        backgroundColor: "#2a2a2a",
-                        color: "#fff",
-                        border: "1px solid #444",
-                        borderRadius: "4px"
-                      }}
-                    />
-                  </Field>
-                </PanelSectionRow>
-                
-                <PanelSectionRow>
-                  <Field label="Max Members">
-                    <input
-                      type="number"
-                      value={newLobbyCapacity}
-                      onChange={(e) => setNewLobbyCapacity(Math.max(2, Math.min(25, parseInt(e.target.value) || 10)))}
-                      min="2"
-                      max="25"
-                      style={{
-                        width: "100%",
-                        padding: "8px",
-                        backgroundColor: "#2a2a2a",
-                        color: "#fff",
-                        border: "1px solid #444",
-                        borderRadius: "4px"
-                      }}
-                    />
-                  </Field>
-                </PanelSectionRow>
-                
-                <PanelSectionRow>
-                  <div style={{ display: "flex", gap: "8px" }}>
-                    <ButtonItem
-                      layout="below"
-                      onClick={handleCreateLobby}
-                      disabled={!newLobbyName.trim() || loading}
-                      style={{ flex: 1, backgroundColor: "#5865F2" }}
-                    >
-                      Create Lobby
-                    </ButtonItem>
-                    <ButtonItem
-                      layout="below"
-                      onClick={() => {
-                        setShowCreateLobby(false);
-                        setNewLobbyName("");
-                        setNewLobbyCapacity(10);
-                      }}
-                      style={{ flex: 1 }}
-                    >
-                      Cancel
-                    </ButtonItem>
-                  </div>
-                </PanelSectionRow>
-              </>
-            )}
-            
-            {!showJoinLobby ? (
-              <PanelSectionRow>
-                <ButtonItem
-                  layout="below"
-                  onClick={() => setShowJoinLobby(true)}
-                  disabled={loading}
-                >
-                  📨 Join by Invite Code
-                </ButtonItem>
-              </PanelSectionRow>
-            ) : (
-              <>
-                <PanelSectionRow>
-                  <Field label="Invite Code">
-                    <input
-                      type="text"
-                      value={joinLobbyCode}
-                      onChange={(e) => setJoinLobbyCode(e.target.value)}
-                      placeholder="Paste invite code here"
-                      style={{
-                        width: "100%",
-                        padding: "8px",
-                        backgroundColor: "#2a2a2a",
-                        color: "#fff",
-                        border: "1px solid #444",
-                        borderRadius: "4px"
-                      }}
-                    />
-                  </Field>
-                </PanelSectionRow>
-                
-                <PanelSectionRow>
-                  <div style={{ display: "flex", gap: "8px" }}>
-                    <ButtonItem
-                      layout="below"
-                      onClick={handleJoinByCode}
-                      disabled={!joinLobbyCode.trim() || loading}
-                      style={{ flex: 1, backgroundColor: "#00ff88" }}
-                    >
-                      Join Lobby
-                    </ButtonItem>
-                    <ButtonItem
-                      layout="below"
-                      onClick={() => {
-                        setShowJoinLobby(false);
-                        setJoinLobbyCode("");
-                      }}
-                      style={{ flex: 1 }}
-                    >
-                      Cancel
-                    </ButtonItem>
-                  </div>
-                </PanelSectionRow>
-              </>
-            )}
-          </PanelSection>
-          
-          <PanelSection title="Add Discord Servers (Legacy)">
-            {!showDiscovery ? (
-              <PanelSectionRow>
-                <ButtonItem
-                  layout="below"
-                  onClick={handleDiscoverServers}
-                  disabled={loading}
-                >
-                  🔍 Discover Your Discord Servers
-                </ButtonItem>
-              </PanelSectionRow>
-            ) : (
-              <>
-                <PanelSectionRow>
-                  <div style={{ fontSize: "0.9em", color: "#ccc", marginBottom: "8px" }}>
-                    {discoveredServers.length > 0 ? "Select servers to add:" : "No servers found"}
-                  </div>
-                </PanelSectionRow>
-                
-                {discoveredServers.map((server, index) => (
-                  <PanelSectionRow key={server.id || index}>
-                    <div style={{ 
-                      display: "flex", 
-                      alignItems: "center", 
-                      gap: "8px", 
-                      padding: "8px",
-                      backgroundColor: "#2a2a2a",
-                      borderRadius: "4px",
-                      margin: "2px 0"
-                    }}>
-                      <span style={{ flex: 1, fontSize: "0.9em" }}>{server.name}</span>
-                      <span style={{ fontSize: "0.7em", color: "#888" }}>
-                        {server.source === "api" ? "📡" : "💡"}
-                      </span>
-                      <ButtonItem
-                        layout="below"
-                        onClick={() => handleAddDiscoveredServer(server)}
-                        style={{ fontSize: "0.8em", padding: "4px 8px" }}
-                      >
-                        Add
-                      </ButtonItem>
-                    </div>
-                  </PanelSectionRow>
-                ))}
-                
-                <PanelSectionRow>
-                  <ButtonItem
-                    layout="below"
-                    onClick={() => {
-                      setShowDiscovery(false);
-                      setDiscoveredServers([]);
-                    }}
-                  >
-                    Close Discovery
-                  </ButtonItem>
-                </PanelSectionRow>
-                
-                <PanelSectionRow>
-                  <div style={{ fontSize: "0.8em", color: "#888", fontStyle: "italic" }}>
-                    📡 = Real Discord servers, 💡 = Common suggestions
-                  </div>
-                </PanelSectionRow>
-                
-                {/* Show OAuth help if we only have suggestions */}
-                {discoveredServers.length > 0 && discoveredServers.every(s => s.source === "suggestion") && (
-                  <PanelSectionRow>
-                    <ButtonItem
-                      layout="below"
-                      onClick={handleGetOAuthHelp}
-                      style={{ fontSize: "0.8em", padding: "4px 8px", backgroundColor: "#5865F2" }}
-                    >
-                      🔐 Get Real Discord Servers (OAuth Setup)
-                    </ButtonItem>
-                  </PanelSectionRow>
-                )}
-              </>
-            )}
-            
-            {/* OAuth Help Section */}
-            {showOAuthHelp && oauthInfo && (
-              <div style={{ marginTop: "12px", padding: "12px", backgroundColor: "#1a1a1a", borderRadius: "6px" }}>
-                <div style={{ fontSize: "0.9em", fontWeight: "bold", marginBottom: "8px", color: "#5865F2" }}>
-                  🔐 Discord OAuth Authorization Required
-                </div>
-                <div style={{ fontSize: "0.8em", color: "#ccc", marginBottom: "8px" }}>
-                  To see your real Discord servers, you need to authorize this app:
-                </div>
-                
-                {oauthInfo.instructions.map((instruction: string, index: number) => (
-                  <div key={index} style={{ fontSize: "0.8em", color: "#aaa", margin: "4px 0" }}>
-                    {instruction}
-                  </div>
-                ))}
-                
-                <div style={{ fontSize: "0.7em", color: "#888", marginTop: "8px", wordBreak: "break-all" }}>
-                  OAuth URL: {oauthInfo.oauth_url}
-                </div>
-                
-                <ButtonItem
-                  layout="below"
-                  onClick={() => setShowOAuthHelp(false)}
-                  style={{ fontSize: "0.8em", padding: "4px 8px", marginTop: "8px" }}
-                >
-                  Close Help
-                </ButtonItem>
-              </div>
-            )}
-          </PanelSection>
-        </>
-      )}
-
-      <PanelSection title="Plugin Management">
+      {state.voice && <CallView state={state} />}
+      <ServersView inCall={state.voice?.channelId ?? null} />
+      <PanelSection title="Settings">
         <PanelSectionRow>
-          <Field label="Version">
-            <span style={{ fontSize: "0.9em" }}>
-              {updateInfo?.current_version || "Unknown"}
-            </span>
-          </Field>
+          <ButtonItem layout="below" onClick={() => run(restartDiscord, "Restart failed")}>
+            Restart Discord
+          </ButtonItem>
         </PanelSectionRow>
-        
-        {updateInfo?.update_available && (
-          <PanelSectionRow>
-            <div style={{ color: "#5865F2", fontSize: "0.9em" }}>
-              Update available: {updateInfo.latest_version}
-            </div>
-          </PanelSectionRow>
-        )}
-        
         <PanelSectionRow>
-          <ButtonItem
-            layout="below"
-            onClick={updateInfo?.update_available ? handleUpdate : checkUpdates}
-            disabled={loading}
-          >
-            {loading ? "Updating..." : updateInfo?.update_available ? "Update Now" : "Check for Updates"}
+          <ButtonItem layout="below" onClick={() => run(logout, "Logout failed")}>
+            Log out
           </ButtonItem>
         </PanelSectionRow>
       </PanelSection>
     </>
   );
-};
+}
 
-export default definePlugin(() => {
-  console.log("Deckycord plugin initializing")
-
-  return {
-    name: "Deckycord",
-    titleView: <div className={staticClasses.Title}>Deckycord</div>,
-    content: <Content />,
-    icon: <FaDiscord />,
-    onDismount() {
-      console.log("Deckycord plugin unloading")
-    },
-  };
-});
+export default definePlugin(() => ({
+  name: "Deckycord",
+  titleView: <div className={staticClasses.Title}>Deckycord</div>,
+  content: <Content />,
+  icon: <FaDiscord />,
+}));

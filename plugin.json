@@ -1,12 +1,18 @@
 {
   "name": "Deckycord",
   "author": "Steam Deck User",
-  "version": "0.3.1",
-  "flags": ["debug"],
+  "version": "0.4.0",
+  "flags": [
+    "debug"
+  ],
   "api_version": 1,
   "publish": {
-    "tags": ["discord", "rpc", "voice"],
-    "description": "Control Discord from Steam Deck without leaving Big Picture Mode.",
+    "tags": [
+      "discord",
+      "voice",
+      "chat"
+    ],
+    "description": "Discord voice chat from the Quick Access Menu: join channels, mute, deafen, QR login.",
     "image": "https://opengraph.githubassets.com/1/SteamDeckHomebrew/PluginLoader"
   }
 }

@@ -1,4 +1,4 @@
-name: Build and Release Discord RPC Plugin (Legacy)
+name: Build and Release Deckycord
 
 on:
   push:
@@ -41,16 +41,10 @@ jobs:
       
     - name: Create plugin package
       run: |
-        mkdir -p release/discord-rpc
-        cp -r dist release/discord-rpc/
-        cp main.py release/discord-rpc/
-        cp plugin.json release/discord-rpc/
-        cp package.json release/discord-rpc/
-        cp README.md release/discord-rpc/
-        cp LICENSE release/discord-rpc/
-        cp -r assets release/discord-rpc/ 2>/dev/null || true
-        cp -r defaults release/discord-rpc/ 2>/dev/null || true
-        cp -r py_modules release/discord-rpc/ 2>/dev/null || true
+        mkdir -p release/Deckycord
+        cp -r dist defaults py_modules main.py plugin.json package.json README.md LICENSE LICENSE.Steamcord release/Deckycord/
+        cp -r assets release/Deckycord/ 2>/dev/null || true
+        rm -f release/Deckycord/py_modules/.keep
         
     - name: Get version from tag
       id: get_version
@@ -66,16 +60,16 @@ jobs:
     - name: Create release zip
       run: |
         cd release
-        zip -r discord-rpc-plugin-${{ steps.get_version.outputs.version }}.zip discord-rpc/
+        zip -r Deckycord-${{ steps.get_version.outputs.version }}.zip Deckycord/
         
     - name: Upload build artifacts
       uses: actions/upload-artifact@v5
       with:
-        name: discord-rpc-plugin-${{ steps.get_version.outputs.version }}
-        path: release/discord-rpc-plugin-${{ steps.get_version.outputs.version }}.zip
+        name: Deckycord-${{ steps.get_version.outputs.version }}
+        path: release/Deckycord-${{ steps.get_version.outputs.version }}.zip
         
     - name: Upload to release (if tagged)
       if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v2
       with:
-        files: release/discord-rpc-plugin-${{ steps.get_version.outputs.version }}.zip
+        files: release/Deckycord-${{ steps.get_version.outputs.version }}.zip

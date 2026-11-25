@@ -1,121 +1,79 @@
-# Discord RPC Plugin for Steam Deck
+# Deckycord
 
-Control Discord from your Steam Deck without leaving Big Picture Mode! This Decky Loader plugin provides Discord RPC integration, allowing you to manage your Discord presence and servers directly from the Steam Deck interface.
+Discord voice chat in Steam Gaming Mode, from the Quick Access Menu. This is a
+[Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) plugin.
 
-## Features
+- Log in by scanning a QR code with the Discord mobile app
+- Browse your servers and see who is in each voice channel
+- Join and leave voice channels
+- Mute and deafen
+- See who is in your call, who is muted, and who is speaking
 
-- **Discord RPC Connection**: Connect to Discord's Rich Presence Client locally
-- **Server List Display**: View your connected Discord servers
-- **Connection Status**: Real-time connection status monitoring
-- **Error Handling**: Clear error messages and troubleshooting info
-- **Refresh Controls**: Manual refresh of server list
+## How it works
 
-## Installation
+Earlier versions talked to the Discord RPC socket. That cannot work from Gaming
+Mode, for two reasons:
 
-### Super Easy Installation (Recommended)
+- **No Discord to talk to.** The RPC socket only exists while the Discord desktop
+  app is running in the user's session. The Decky backend is started by a system
+  service and inherits root's `XDG_RUNTIME_DIR` and D-Bus address, so it cannot
+  even see the user session.
+- **No permission for voice.** Controlling voice over RPC needs the `rpc` and
+  `rpc.voice.*` OAuth scopes, which Discord grants only to approved apps.
 
-**No pip or Python dependencies required!** Everything is bundled.
+Deckycord now works the way [Steamcord](https://github.com/Necrosiak/Steamcord)
+does. It runs [Vesktop](https://github.com/Vencord/Vesktop), a complete Discord
+desktop client, hidden in the background. It starts Vesktop with Chrome
+DevTools enabled on `127.0.0.1:39224` and controls Discord through that
+connection. Because Vesktop is a normal desktop app in your session, the
+microphone and voice audio work as usual.
 
-1. **Download Pre-built Plugin**:
-   - Go to the [Releases page](https://github.com/deegan/deckydiscord/releases)
-   - Download the latest `discord-rpc-plugin.zip` file
+- `py_modules/dd_vesktop.py` installs Vesktop (a user-level flatpak from
+  Flathub, or a native `vesktop` already on `PATH`). It repairs the
+  environment, picks the display Steam is using (gamescope's XWayland in Gaming
+  Mode), and starts Vesktop as the `deckydiscord-vesktop` user systemd unit.
+- `py_modules/dd_cdp.py` is a small DevTools client.
+- `defaults/deckydiscord_client.js` is injected into the Discord page. It
+  exposes `window.DECKYDISCORD` (state, servers, join and leave, mute and
+  deafen, log out) using Discord's own stores through Vencord.
+- `main.py` restarts Vesktop when it dies, re-injects the client, and exposes
+  the plugin's callables to the frontend.
 
-2. **Install in Decky Loader**:
-   - Extract the zip file
-   - Copy the `discord-rpc` folder to your Decky Loader plugins directory
-   - Or use Decky's "Install Plugin from ZIP" feature
-   - **That's it!** No additional dependencies needed.
+## Install
 
-### Manual Installation (Developers)
+Download `Deckycord-vX.Y.Z.zip` from the
+[releases](https://github.com/deegan/deckydiscord/releases). Then, in Decky:
+Settings → Developer → Install Plugin from ZIP.
 
-If you want to build from source:
+The first time it runs, the plugin installs Vesktop from Flathub. This takes a
+few minutes and needs a network connection. Then open Deckycord in the Quick
+Access Menu and scan the QR code. On your phone, open Discord → Settings → Scan
+QR Code. Your login is kept across reboots.
 
-1. **Prerequisites**:
-   - **Discord Desktop Client**: Must be running on your Steam Deck
-   - **Decky Loader**: Install [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) on your Steam Deck
-   - **Node.js & pnpm**: For building the frontend only
+### Notes
 
-2. **Build Steps**:
-   ```bash
-   git clone https://github.com/deegan/deckydiscord.git
-   cd deckydiscord
-   pnpm install
-   pnpm run build
-   # No pip install needed - Discord RPC is bundled!
-   ```
-
-3. **Install in Decky Loader**:
-   - Copy the entire plugin folder to your Decky Loader plugins directory
-   - Or use Decky's developer mode to load from the build output
-
-## Usage
-
-1. **Start Discord**: Make sure Discord desktop client is running
-2. **Open Plugin**: Access the Discord RPC plugin from Decky's plugin menu
-3. **Connect**: Click "Connect to Discord" button
-4. **View Servers**: Once connected, your Discord servers will be displayed
-5. **Refresh**: Use the refresh button to update the server list
-
-### Plugin Interface
-
-- **Connection Status Section**: Shows current connection state and any errors
-- **Connect/Disconnect Button**: Manual control over Discord RPC connection  
-- **Discord Servers Section**: Lists your connected servers (appears when connected)
-- **Refresh Servers Button**: Updates the server list
-
-## Current Limitations
-
-- **Mock Data**: Currently displays test server data for UI testing
-- **Read-Only**: No server switching or voice controls yet
-- **Local Only**: Requires Discord client running locally on Steam Deck
-- **No Authentication**: Uses placeholder client ID (needs Discord app registration for full features)
-
-## Development Roadmap
-
-Future features planned:
-- ✅ Discord RPC connection
-- ✅ Server list display
-- 🔄 Real Discord server data (requires Discord app approval)
-- ⏳ Voice channel controls
-- ⏳ Mute/unmute functionality
-- ⏳ Server switching
-- ⏳ Channel navigation
+- **Don't run Deckycord and Steamcord together.** Both run their own copy of
+  Vesktop, and Electron allows only one instance. Deckycord refuses to start
+  while Steamcord is installed.
+- **Deckycord takes over Vesktop.** If you also use Vesktop in Desktop Mode,
+  Deckycord stops it and restarts it with DevTools enabled. Your login is
+  shared.
+- **CAPTCHA at login.** If Discord asks for a CAPTCHA, the QR code never logs
+  you in. Log in once from Vesktop in Desktop Mode instead.
 
 ## Development
 
-### Building
-
 ```bash
-# Install dependencies
-pnpm install
-
-# Build for development
-pnpm run build
-
-# Watch mode for development
-pnpm run watch
+npx pnpm@9 install
+npx pnpm@9 run typecheck
+npx pnpm@9 run build
 ```
 
-### Dependencies
+To release, run `./scripts/release.sh 0.4.1`. It bumps the version, builds,
+tags, and pushes. CI then attaches the zip to the GitHub release.
 
-- **Frontend**: React, TypeScript, Decky UI components
-- **Backend**: Python with pypresence library for Discord RPC
-- **Build**: Rollup, pnpm package manager
+## Credits
 
-## Contributing
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- Built with [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader)
-- Uses [pypresence](https://github.com/qwertyquerty/pypresence) for Discord RPC
-- Based on [Decky Plugin Template](https://github.com/SteamDeckHomebrew/decky-plugin-template)
+The Vesktop launch logic and the use of Discord's internal stores are adapted
+from [Steamcord](https://github.com/Necrosiak/Steamcord) by Necrosiak
+(BSD-3-Clause); its license is in `LICENSE.Steamcord`.
